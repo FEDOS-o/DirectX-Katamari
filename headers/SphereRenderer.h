@@ -114,7 +114,6 @@ private:
                 float y = cosTheta;
                 float z = sinPhi * sinTheta;
 
-                // UV координаты для текстуры
                 float u = (float)lon / segments;
                 float v = (float)lat / segments;
 

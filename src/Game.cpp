@@ -98,7 +98,6 @@ HRESULT Game::CreateBackBuffer() {
 }
 
 HRESULT Game::CreateDepthBuffer() {
-    // Release existing resources if any
     if (DepthStencilView) {
         DepthStencilView->Release();
         DepthStencilView = nullptr;
@@ -133,7 +132,6 @@ HRESULT Game::CreateDepthBuffer() {
         return res;
     }
 
-    // Create depth stencil state with depth test enabled
     D3D11_DEPTH_STENCIL_DESC dsDesc = {};
     dsDesc.DepthEnable = true;
     dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;

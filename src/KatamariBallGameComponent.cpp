@@ -217,7 +217,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
     int segments = 24;
     float angleStep = 2.0f * 3.14159f / segments;
 
-    // XZ plane (horizontal) - зеленая сфера коллайдера
     for (int i = 0; i <= segments; i++) {
         float angle = i * angleStep;
         float x = cos(angle) * radius;
@@ -231,7 +230,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
 
     int xzStart = (int)vertices.size() - (segments + 1);
 
-    // XY plane (vertical)
     for (int i = 0; i <= segments; i++) {
         float angle = i * angleStep;
         float x = cos(angle) * radius;
@@ -245,7 +243,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
 
     int xyStart = xzStart + segments + 1;
 
-    // YZ plane
     for (int i = 0; i <= segments; i++) {
         float angle = i * angleStep;
         float y = cos(angle) * radius;
@@ -257,7 +254,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
         indices.push_back(xyStart + segments + 1 + i + 1);
     }
 
-    // ===== ВИЗУАЛИЗАЦИЯ ОСИ ВРАЩЕНИЯ ШАРА =====
     float speed = velocity.Length();
     if (speed > 0.01f) {
         Vector3 moveDir = velocity;
@@ -265,7 +261,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
         if (moveDir.Length() > 0.01f) {
             moveDir.Normalize();
 
-            // Ось вращения: перпендикулярна moveDir и UP (горизонтальная)
             Vector3 rotAxis = Vector3(0, 1, 0).Cross(moveDir);
             if (rotAxis.Length() < 0.1f) {
                 rotAxis = Vector3(1, 0, 0);
@@ -274,7 +269,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
                 rotAxis.Normalize();
             }
 
-            // Рисуем ось вращения (красная линия)
             Vector3 axisStart = position - rotAxis * radius * 1.5f;
             Vector3 axisEnd = position + rotAxis * radius * 1.5f;
 
@@ -288,7 +282,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
                 indices.push_back(vertices.size() - 1);
             }
 
-            // Рисуем направление движения (синяя линия со стрелкой)
             Vector3 moveStart = position;
             Vector3 moveEnd = position + moveDir * radius * 1.5f;
             Vector3 moveStep = (moveEnd - moveStart) / 10.0f;
@@ -302,7 +295,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
                 indices.push_back(vertices.size() - 1);
             }
 
-            // Стрелка
             Vector3 arrowBase = moveEnd - moveStep;
             Vector3 arrowRight = rotAxis * 0.2f;
             Vector3 arrowUp = Vector3(0, 1, 0).Cross(moveDir) * 0.2f;
@@ -325,7 +317,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
         }
     }
     else {
-        // Если стоим, рисуем оси X и Z для ориентации
         Vector3 xAxis = Vector3(1, 0, 0);
         Vector3 zAxis = Vector3(0, 0, 1);
 
@@ -352,7 +343,6 @@ void KatamariBallGameComponent::DrawDebugCollider() {
         }
     }
 
-    // Update vertex buffer
     if (debugVertexBuffer) { debugVertexBuffer->Release(); debugVertexBuffer = nullptr; }
     if (debugIndexBuffer) { debugIndexBuffer->Release(); debugIndexBuffer = nullptr; }
 
@@ -402,7 +392,6 @@ void KatamariBallGameComponent::Update(float deltaTime) {
         camera->SetTarget(position);
     }
 
-    // Вращение шара в направлении движения
     float speed = velocity.Length();
     if (speed > 0.01f) {
         float distance = speed * deltaTime;
@@ -414,7 +403,6 @@ void KatamariBallGameComponent::Update(float deltaTime) {
         if (moveDir.Length() > 0.01f) {
             moveDir.Normalize();
 
-            // Ось вращения (та же самая, что рисуется в дебаге)
             Vector3 rotAxis = Vector3(0, 1, 0).Cross(moveDir);
             if (rotAxis.Length() < 0.1f) {
                 rotAxis = Vector3(1, 0, 0);
@@ -423,7 +411,6 @@ void KatamariBallGameComponent::Update(float deltaTime) {
                 rotAxis.Normalize();
             }
 
-            // ПРОСТО накапливаем угол
             rotationAngle += angleDelta;
             while (rotationAngle > XM_2PI) rotationAngle -= XM_2PI;
         }
@@ -520,17 +507,13 @@ bool KatamariBallGameComponent::AttachProp(PropGameComponent* prop) {
         direction = Vector3(1, 0, 0);
     }
 
-    // Сохраняем ЛОКАЛЬНОЕ направление на сфере
     Vector3 localDirection = direction;
 
-    // Глубина прикрепления (абсолютная)
     float propRadius = prop->GetCollisionRadius();
     float absoluteDepth = propRadius * 0.3f;
 
-    // Преобразуем в ОТНОСИТЕЛЬНУЮ глубину (от 0 до 1 относительно текущего радиуса)
     float relativeDepth = absoluteDepth / radius;
 
-    // Если объект уже касается шара
     float distanceToSurface = (propPos - position).Length() - radius;
     if (distanceToSurface < 0) {
         absoluteDepth = -distanceToSurface + propRadius * 0.2f;
@@ -565,7 +548,6 @@ bool KatamariBallGameComponent::AttachProp(PropGameComponent* prop) {
 }
 
 void KatamariBallGameComponent::UpdateAttachedObjects(float deltaTime) {
-    // Вычисляем ось вращения
     Vector3 rotAxis = Vector3(1, 0, 0);
 
     float speed = velocity.Length();
@@ -584,34 +566,26 @@ void KatamariBallGameComponent::UpdateAttachedObjects(float deltaTime) {
         }
     }
 
-    // Текущее вращение шара
     Quaternion ballRotation = Quaternion::CreateFromAxisAngle(rotAxis, rotationAngle);
 
     for (auto& attached : attachedObjects) {
         if (attached.prop) {
-            // Локальное направление пропа
             Vector3 localDir = attached.relativePosition;
             localDir.Normalize();
 
-            // Поворачиваем локальное направление вместе с шаром
             Vector3 worldDir = Vector3::Transform(localDir, ballRotation);
             worldDir.Normalize();
 
-            // Глубина должна масштабироваться относительно текущего радиуса
-            // Сохраняем относительную глубину (от 0 до 1)
             float relativeDepth = attached.depth / radius;
 
-            // Новая глубина с учетом текущего радиуса
             float currentDepth = radius * relativeDepth;
 
-            // Новая позиция пропа с учетом глубины
             float attachRadius = radius - currentDepth;
             if (attachRadius < 0.1f) attachRadius = 0.1f;
 
             Vector3 newPos = position + worldDir * attachRadius;
             attached.prop->SetPosition(newPos);
 
-            // Проп смотрит наружу от центра шара
             Vector3 up = worldDir;
             Vector3 forward;
 
@@ -636,7 +610,6 @@ void KatamariBallGameComponent::UpdateAttachedObjects(float deltaTime) {
 
             Quaternion propRotation = Quaternion::CreateFromRotationMatrix(rotMatrix);
 
-            // Применяем вращение шара к пропу
             propRotation = ballRotation * propRotation;
 
             attached.prop->GetModel().SetRotation(propRotation.ToEuler());
@@ -653,8 +626,7 @@ void KatamariBallGameComponent::Draw() {
 void KatamariBallGameComponent::DrawBall() {
     if (!game || !game->Camera || !sphereInitialized) return;
 
-    // Вычисляем ось вращения (ТАК ЖЕ, как в Update)
-    Vector3 rotAxis = Vector3(1, 0, 0); // ось по умолчанию
+    Vector3 rotAxis = Vector3(1, 0, 0);
 
     float speed = velocity.Length();
     if (speed > 0.01f) {
@@ -672,7 +644,6 @@ void KatamariBallGameComponent::DrawBall() {
         }
     }
 
-    // Создаем вращение вокруг этой оси на накопленный угол
     Quaternion rotation = Quaternion::CreateFromAxisAngle(rotAxis, rotationAngle);
 
     Matrix world = Matrix::CreateScale(radius) *

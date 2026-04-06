@@ -14,8 +14,8 @@ using namespace DirectX::SimpleMath;
 
 struct AttachedObject {
     PropGameComponent* prop;
-    Vector3 relativePosition;  // Локальное направление на сфере (нормализованное)
-    float depth;               // Глубина от поверхности (0 = на поверхности, >0 = внутри шара)
+    Vector3 relativePosition;
+    float depth;
     Vector3 originalScale;
     float attachmentTime;
 
@@ -36,7 +36,7 @@ private:
     Vector3 velocity;
     float moveSpeed;
     float rotationAngle;
-    Quaternion ballWorldRotation;  // Текущее вращение шара в мире
+    Quaternion ballWorldRotation;
     OrbitalCameraGameComponent* camera;
     std::vector<AttachedObject> attachedObjects;
     std::set<PropGameComponent*> attachedSet;
@@ -46,7 +46,6 @@ private:
     Vector4 ballColor;
     bool sphereInitialized;
 
-    // Debug collider
     ID3D11Buffer* debugVertexBuffer;
     ID3D11Buffer* debugIndexBuffer;
     ID3D11VertexShader* debugVS;
@@ -55,7 +54,6 @@ private:
     ID3D11Buffer* debugConstantBuffer;
     bool debugInitialized;
 
-    // Texture for the ball
     ID3D11ShaderResourceView* ballTexture;
     bool textureLoaded;
     std::string texturePath;

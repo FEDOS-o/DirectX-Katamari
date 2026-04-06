@@ -7,7 +7,7 @@ private:
     Model3D model;
     Vector3 position;
     std::string modelPath;
-    float modelScale;  // Добавляем переменную для масштаба
+    float modelScale;
 
     float collisionRadius;
     Vector3 collisionCenterOffset;

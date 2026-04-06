@@ -19,28 +19,21 @@ PropGameComponent::~PropGameComponent() {
 }
 
 void PropGameComponent::UpdateCollisionData() {
-    // Получаем локальный bounding box из модели
     DirectX::BoundingBox localBox = model.GetLocalBoundingBox();
     Vector3 scale = model.GetScale();
 
-    // Если bounding box не рассчитан (все нули), используем приблизительный расчет
     if (localBox.Extents.x == 0.5f && localBox.Extents.y == 0.5f && localBox.Extents.z == 0.5f &&
         localBox.Center.x == 0 && localBox.Center.y == 0 && localBox.Center.z == 0) {
-        // Это дефолтный bounding box, нужно рассчитать заново
         model.CalculateLocalBoundingBox();
         localBox = model.GetLocalBoundingBox();
     }
 
-    // Мировые экстенты с учётом масштаба
     Vector3 worldExtents = localBox.Extents * scale;
 
-    // Радиус коллизии - максимальная полуось эллипсоида
     collisionRadius = std::max({ worldExtents.x, worldExtents.y, worldExtents.z });
 
-    // Смещение центра коллизии (локальный центр модели * масштаб)
     collisionCenterOffset = localBox.Center * scale;
 
-    // Убеждаемся, что радиус не меньше разумного минимума
     if (collisionRadius < 0.1f) collisionRadius = 0.5f;
 
     std::cout << "[Prop] Collision - LocalBox Center: (" << localBox.Center.x << ", " << localBox.Center.y << ", " << localBox.Center.z << ")"
@@ -143,7 +136,6 @@ void PropGameComponent::DrawDebugCollider() {
     int segments = 24;
     float angleStep = 2.0f * 3.14159f / segments;
 
-    // XZ plane (horizontal)
     for (int i = 0; i <= segments; i++) {
         float angle = i * angleStep;
         float x = cos(angle) * worldRadius;
@@ -157,7 +149,6 @@ void PropGameComponent::DrawDebugCollider() {
 
     int xzStart = (int)vertices.size() - (segments + 1);
 
-    // XY plane (vertical)
     for (int i = 0; i <= segments; i++) {
         float angle = i * angleStep;
         float x = cos(angle) * worldRadius;
@@ -171,7 +162,6 @@ void PropGameComponent::DrawDebugCollider() {
 
     int xyStart = xzStart + segments + 1;
 
-    // YZ plane
     for (int i = 0; i <= segments; i++) {
         float angle = i * angleStep;
         float y = cos(angle) * worldRadius;
@@ -183,7 +173,6 @@ void PropGameComponent::DrawDebugCollider() {
         indices.push_back(xyStart + segments + 1 + i + 1);
     }
 
-    // Clean up old buffers
     if (debugVertexBuffer) { debugVertexBuffer->Release(); debugVertexBuffer = nullptr; }
     if (debugIndexBuffer) { debugIndexBuffer->Release(); debugIndexBuffer = nullptr; }
 
