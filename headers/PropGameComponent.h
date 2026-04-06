@@ -7,6 +7,7 @@ private:
     Model3D model;
     Vector3 position;
     std::string modelPath;
+    float modelScale;  // Добавляем переменную для масштаба
 
     float collisionRadius;
     Vector3 collisionCenterOffset;
@@ -20,7 +21,7 @@ private:
     bool debugInitialized;
 
 public:
-    PropGameComponent(Game* game, const std::string& path, const Vector3& startPosition = Vector3(0, 0, 0));
+    PropGameComponent(Game* game, const std::string& path, const Vector3& startPosition = Vector3(0, 0, 0), float scale = 0.15f);
     ~PropGameComponent();
 
     void Initialize() override;

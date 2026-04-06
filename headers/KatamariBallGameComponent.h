@@ -14,14 +14,15 @@ using namespace DirectX::SimpleMath;
 
 struct AttachedObject {
     PropGameComponent* prop;
-    Vector3 relativePosition;
+    Vector3 relativePosition;  // Локальное направление на сфере (нормализованное)
+    float depth;               // Глубина от поверхности (0 = на поверхности, >0 = внутри шара)
     Vector3 originalScale;
     float attachmentTime;
 
-    AttachedObject() : prop(nullptr), relativePosition(Vector3::Zero), originalScale(Vector3(1, 1, 1)), attachmentTime(0) {}
+    AttachedObject() : prop(nullptr), relativePosition(Vector3::Zero), depth(0.0f), originalScale(Vector3(1, 1, 1)), attachmentTime(0) {}
 
-    AttachedObject(PropGameComponent* p, const Vector3& relPos, const Vector3& scale)
-        : prop(p), relativePosition(relPos), originalScale(scale), attachmentTime(0) {
+    AttachedObject(PropGameComponent* p, const Vector3& relPos, float attachDepth, const Vector3& scale)
+        : prop(p), relativePosition(relPos), depth(attachDepth), originalScale(scale), attachmentTime(0) {
     }
 };
 
@@ -35,6 +36,7 @@ private:
     Vector3 velocity;
     float moveSpeed;
     float rotationAngle;
+    Quaternion ballWorldRotation;  // Текущее вращение шара в мире
     OrbitalCameraGameComponent* camera;
     std::vector<AttachedObject> attachedObjects;
     std::set<PropGameComponent*> attachedSet;

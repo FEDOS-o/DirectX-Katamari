@@ -7,8 +7,8 @@
 
 #pragma comment(lib, "d3dcompiler.lib")
 
-PropGameComponent::PropGameComponent(Game* game, const std::string& path, const Vector3& startPosition)
-    : GameComponent(game), model(game), position(startPosition), modelPath(path)
+PropGameComponent::PropGameComponent(Game* game, const std::string& path, const Vector3& startPosition, float scale)
+    : GameComponent(game), model(game), position(startPosition), modelPath(path), modelScale(scale)
     , collisionRadius(0.5f), collisionCenterOffset(0, 0, 0)
     , debugVertexBuffer(nullptr), debugIndexBuffer(nullptr), debugVS(nullptr), debugPS(nullptr)
     , debugLayout(nullptr), debugConstantBuffer(nullptr), debugInitialized(false) {
@@ -38,7 +38,6 @@ void PropGameComponent::UpdateCollisionData() {
     collisionRadius = std::max({ worldExtents.x, worldExtents.y, worldExtents.z });
 
     // Смещение центра коллизии (локальный центр модели * масштаб)
-    // Важно: центр модели может быть не в нуле!
     collisionCenterOffset = localBox.Center * scale;
 
     // Убеждаемся, что радиус не меньше разумного минимума
@@ -224,14 +223,13 @@ void PropGameComponent::DrawDebugCollider() {
 void PropGameComponent::Initialize() {
     if (model.Load(modelPath)) {
         model.SetPosition(position);
-        float scale = 0.15f;
-        model.SetScale(Vector3(scale, scale, scale));
+        model.SetScale(Vector3(modelScale, modelScale, modelScale));
 
         UpdateCollisionData();
         InitDebugCollider();
 
         std::cout << "[Prop] Loaded at (" << position.x << ", " << position.z
-            << ") Scale: " << scale << ", CollisionRadius: " << collisionRadius << std::endl;
+            << ") Scale: " << modelScale << ", CollisionRadius: " << collisionRadius << std::endl;
     }
     else {
         std::cout << "[Prop] ERROR: Failed to load " << modelPath << std::endl;

@@ -6,6 +6,23 @@
 #include <iostream>
 #include <random>
 #include <cmath>
+#include <vector>
+#include <string>
+
+
+float GetModelScale(const std::string& modelPath) {
+    if (modelPath.find("childrens_chair") != std::string::npos) return 0.01f;
+    if (modelPath.find("BarrelNewOBJ") != std::string::npos) return 0.8f;
+    if (modelPath.find("coffee_table") != std::string::npos) return 0.012f;
+    if (modelPath.find("diamond") != std::string::npos) return 0.6f;
+    if (modelPath.find("hammer") != std::string::npos) return 0.01f;
+    if (modelPath.find("knife") != std::string::npos) return 0.04f;
+    if (modelPath.find("metal_table") != std::string::npos) return 0.05f;
+    if (modelPath.find("obj.obj") != std::string::npos) return 0.8f;
+    if (modelPath.find("signboard_02") != std::string::npos) return 0.12f;
+    return 0.01f; // значение по умолчанию
+}
+
 
 int main() {
     AllocConsole();
@@ -32,17 +49,26 @@ int main() {
     KatamariBallGameComponent* ball = new KatamariBallGameComponent(&game, camera, Vector3(0, 0.5f, 0), 0.6f, "models/marble.jpg");
     game.components.push_back(ball);
 
-    // Random objects - 7 объектов, разбросанных подальше
-    // Зона спавна шара: x = -5..5, z = -5..5
-    // Размещаем объекты на расстоянии 8-15 единиц от центра
+    // Список доступных моделей
+    std::vector<std::string> models = {
+        "models/childrens_chair/childrens_chair.obj",
+        "models/BarrelNewOBJ/BarrelNewOBJ.obj",
+        "models/coffee_table/coffee_table.obj",
+        "models/diamond/Diamond.obj",
+        "models/hammer/hammer.obj",
+        "models/knife/knife.obj",
+        "models/metal_table/metal_table.obj",
+        "models/obj/obj.obj",
+        "models/signboard_02/signboard_02.obj"
+    };
 
     std::random_device rd;
     std::mt19937 gen(rd());
+    std::uniform_int_distribution<> modelDist(0, (int)models.size() - 1);
+    std::uniform_real_distribution<float> scaleDist(0.008f, 0.015f);
 
-    // Позиции для объектов, чтобы они не пересекались друг с другом
     std::vector<Vector3> usedPositions;
 
-    // Функция проверки расстояния между объектами
     auto isTooClose = [&](const Vector3& pos, float minDist) {
         for (const auto& used : usedPositions) {
             float dx = pos.x - used.x;
@@ -68,7 +94,6 @@ int main() {
 
         // Дополнительная проверка, чтобы объекты не были слишком близко к центру
         if (abs(x) < 6.0f && abs(z) < 6.0f) {
-            // Если слишком близко, отодвигаем
             if (x >= 0) x += 4.0f;
             else x -= 4.0f;
             if (z >= 0) z += 4.0f;
@@ -78,16 +103,26 @@ int main() {
 
         usedPositions.push_back(pos);
 
-        PropGameComponent* prop = new PropGameComponent(&game, "models/childrens_chair/childrens_chair.obj", pos);
+        // Выбираем случайную модель и случайный масштаб
+        int modelIndex = modelDist(gen);
+        float scale = scaleDist(gen);
+
+        PropGameComponent* prop = new PropGameComponent(&game, models[modelIndex], pos, GetModelScale(models[modelIndex]));
         game.components.push_back(prop);
         ball->props.push_back(prop);
 
-        std::cout << "[Spawn] Prop " << i << " at (" << x << ", 0, " << z << ")" << std::endl;
+        // Извлекаем имя файла для вывода
+        size_t lastSlash = models[modelIndex].find_last_of("/");
+        std::string modelName = (lastSlash != std::string::npos) ? models[modelIndex].substr(lastSlash + 1) : models[modelIndex];
+
+        std::cout << "[Spawn] Prop " << i << ": " << modelName
+            << " at (" << x << ", 0, " << z << ") with scale " << scale << std::endl;
     }
 
     std::cout << "Total objects: " << game.components.size() << std::endl;
     std::cout << "Ball spawn at (0, 0.5, 0)" << std::endl;
     std::cout << "Props are placed at distance 8-14 units from center" << std::endl;
+    std::cout << "Props scale is 0.008-0.015 (very small!)" << std::endl;
     std::cout << "Initializing..." << std::endl;
 
     HRESULT hr = game.Initialize();

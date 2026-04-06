@@ -38,7 +38,7 @@ public:
             return;
         }
         mouseHandle = game->Input->MouseMove.AddLambda([this](const InputDevice::MouseMoveEventArgs& args) {
-            yaw += args.Offset.x * rotationSpeed;
+            yaw -= args.Offset.x * rotationSpeed;
             pitch += args.Offset.y * rotationSpeed;
             if (pitch < minPitch) pitch = minPitch;
             if (pitch > maxPitch) pitch = maxPitch;
