@@ -1,0 +1,40 @@
+## Игнорируем временные и сгенерированные файлы VS
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+## Игнорируем результаты сборки
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]lease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+[Bb]in/
+[Oo]bj/
+
+## Но НЕ игнорируем наши папки с исходниками!
+!headers/
+!src/
+!shaders/
+
+## Игнорируем временные файлы
+*.cache
+*.tmp
+*.temp
+*.log
+*.tlog
+
+## Файлы VS Code (если используете)
+.vscode/
+*.code-workspace
+
+
+# NuGet packages
+packages/
+*.nupkg
