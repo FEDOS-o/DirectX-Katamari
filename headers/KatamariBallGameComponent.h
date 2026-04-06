@@ -5,9 +5,10 @@
 #include "PropGameComponent.h"
 #include "SphereRenderer.h"
 #include <SimpleMath.h>
-#include <DirectXCollision.h>
 #include <vector>
 #include <set>
+
+class PropGameComponent;
 
 using namespace DirectX::SimpleMath;
 
@@ -52,10 +53,18 @@ private:
     ID3D11Buffer* debugConstantBuffer;
     bool debugInitialized;
 
+    // Texture for the ball
+    ID3D11ShaderResourceView* ballTexture;
+    bool textureLoaded;
+    std::string texturePath;
+
 public:
+    std::vector<GameComponent*> props;
+
     KatamariBallGameComponent(Game* game, OrbitalCameraGameComponent* cam,
         const Vector3& startPos = Vector3(0, 0, 0),
-        float startRadius = 0.6f);
+        float startRadius = 0.6f,
+        const std::string& textureFile = "");
     ~KatamariBallGameComponent();
 
     void Initialize() override;
@@ -75,4 +84,6 @@ public:
     void DrawBall();
     void InitDebugCollider();
     void DrawDebugCollider();
+
+    void LoadTexture(const std::string& filepath);
 };

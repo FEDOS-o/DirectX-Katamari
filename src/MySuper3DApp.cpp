@@ -5,6 +5,7 @@
 #include "KatamariBallGameComponent.h"
 #include <iostream>
 #include <random>
+#include <cmath>
 
 int main() {
     AllocConsole();
@@ -28,31 +29,65 @@ int main() {
     camera->Initialize();
 
     // Ball
-    KatamariBallGameComponent* ball = new KatamariBallGameComponent(&game, camera, Vector3(0, 0.5f, 0), 6.0f);
+    KatamariBallGameComponent* ball = new KatamariBallGameComponent(&game, camera, Vector3(0, 0.5f, 0), 0.6f, "models/marble.jpg");
     game.components.push_back(ball);
 
-    // Random objects
+    // Random objects - 7 объектов, разбросанных подальше
+    // Зона спавна шара: x = -5..5, z = -5..5
+    // Размещаем объекты на расстоянии 8-15 единиц от центра
+
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> posDist(-10.0f, 10.0f);
 
-    for (int i = 0; i < 40; i++) {
-        float x = posDist(gen);
-        float z = posDist(gen);
-        PropGameComponent* prop = new PropGameComponent(&game, "models/childrens_chair/childrens_chair.obj", Vector3(x, 0, z));
-        game.components.push_back(prop);
-    }
+    // Позиции для объектов, чтобы они не пересекались друг с другом
+    std::vector<Vector3> usedPositions;
 
-    // Objects near start
-    for (float x = -2; x <= 2; x++) {
-        for (float z = -2; z <= 2; z++) {
-            if (x == 0 && z == 0) continue;
-            PropGameComponent* prop = new PropGameComponent(&game, "models/childrens_chair/childrens_chair.obj", Vector3(x * 1.2f, 0, z * 1.2f));
-            game.components.push_back(prop);
+    // Функция проверки расстояния между объектами
+    auto isTooClose = [&](const Vector3& pos, float minDist) {
+        for (const auto& used : usedPositions) {
+            float dx = pos.x - used.x;
+            float dz = pos.z - used.z;
+            float dist = sqrt(dx * dx + dz * dz);
+            if (dist < minDist) return true;
         }
+        return false;
+        };
+
+    // 7 объектов на разных дистанциях и углах
+    float distances[] = { 9.0f, 11.0f, 13.0f, 10.0f, 12.0f, 14.0f, 8.0f };
+    float angles[] = { 0.2f, 1.8f, 3.1f, 4.5f, 5.0f, 2.5f, 4.0f };
+
+    for (int i = 0; i < 7; i++) {
+        float distance = distances[i];
+        float angle = angles[i];
+
+        float x = cos(angle) * distance;
+        float z = sin(angle) * distance;
+
+        Vector3 pos(x, 0, z);
+
+        // Дополнительная проверка, чтобы объекты не были слишком близко к центру
+        if (abs(x) < 6.0f && abs(z) < 6.0f) {
+            // Если слишком близко, отодвигаем
+            if (x >= 0) x += 4.0f;
+            else x -= 4.0f;
+            if (z >= 0) z += 4.0f;
+            else z -= 4.0f;
+            pos = Vector3(x, 0, z);
+        }
+
+        usedPositions.push_back(pos);
+
+        PropGameComponent* prop = new PropGameComponent(&game, "models/childrens_chair/childrens_chair.obj", pos);
+        game.components.push_back(prop);
+        ball->props.push_back(prop);
+
+        std::cout << "[Spawn] Prop " << i << " at (" << x << ", 0, " << z << ")" << std::endl;
     }
 
     std::cout << "Total objects: " << game.components.size() << std::endl;
+    std::cout << "Ball spawn at (0, 0.5, 0)" << std::endl;
+    std::cout << "Props are placed at distance 8-14 units from center" << std::endl;
     std::cout << "Initializing..." << std::endl;
 
     HRESULT hr = game.Initialize();

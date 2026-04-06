@@ -2,6 +2,8 @@
 #include "Game.h"
 #include <d3dcompiler.h>
 #include <iostream>
+#include <algorithm>
+#include <float.h>
 
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -17,19 +19,35 @@ PropGameComponent::~PropGameComponent() {
 }
 
 void PropGameComponent::UpdateCollisionData() {
+    // Получаем локальный bounding box из модели
     DirectX::BoundingBox localBox = model.GetLocalBoundingBox();
     Vector3 scale = model.GetScale();
 
+    // Если bounding box не рассчитан (все нули), используем приблизительный расчет
+    if (localBox.Extents.x == 0.5f && localBox.Extents.y == 0.5f && localBox.Extents.z == 0.5f &&
+        localBox.Center.x == 0 && localBox.Center.y == 0 && localBox.Center.z == 0) {
+        // Это дефолтный bounding box, нужно рассчитать заново
+        model.CalculateLocalBoundingBox();
+        localBox = model.GetLocalBoundingBox();
+    }
+
     // Мировые экстенты с учётом масштаба
     Vector3 worldExtents = localBox.Extents * scale;
-    collisionRadius = max(worldExtents.x, max(worldExtents.y, worldExtents.z));
 
-    // Смещение центра коллизии (локальный центр * масштаб)
+    // Радиус коллизии - максимальная полуось эллипсоида
+    collisionRadius = std::max({ worldExtents.x, worldExtents.y, worldExtents.z });
+
+    // Смещение центра коллизии (локальный центр модели * масштаб)
+    // Важно: центр модели может быть не в нуле!
     collisionCenterOffset = localBox.Center * scale;
 
-    std::cout << "[Prop] Collision - LocalCenter: (" << localBox.Center.x << ", " << localBox.Center.y << ", " << localBox.Center.z << ")"
+    // Убеждаемся, что радиус не меньше разумного минимума
+    if (collisionRadius < 0.1f) collisionRadius = 0.5f;
+
+    std::cout << "[Prop] Collision - LocalBox Center: (" << localBox.Center.x << ", " << localBox.Center.y << ", " << localBox.Center.z << ")"
+        << ", Extents: (" << localBox.Extents.x << ", " << localBox.Extents.y << ", " << localBox.Extents.z << ")"
         << ", Scale: (" << scale.x << ", " << scale.y << ", " << scale.z << ")"
-        << ", Offset: (" << collisionCenterOffset.x << ", " << collisionCenterOffset.y << ", " << collisionCenterOffset.z << ")"
+        << ", WorldOffset: (" << collisionCenterOffset.x << ", " << collisionCenterOffset.y << ", " << collisionCenterOffset.z << ")"
         << ", Radius: " << collisionRadius << std::endl;
 }
 
@@ -138,7 +156,7 @@ void PropGameComponent::DrawDebugCollider() {
         indices.push_back(i + 1);
     }
 
-    int xzStart = vertices.size() - (segments + 1);
+    int xzStart = (int)vertices.size() - (segments + 1);
 
     // XY plane (vertical)
     for (int i = 0; i <= segments; i++) {

@@ -1,10 +1,20 @@
 #pragma once
-#include "Game.h"
-#include "Core.h"
-#include "Camera.h"
+
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include "Game.h"
+#include "Core.h"
+#include "Camera.h"
+
+#include <algorithm>  // днаюбхрэ щрн!
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -16,6 +26,9 @@
 #include <DirectXCollision.h>
 
 #pragma comment(lib, "windowscodecs.lib")
+
+
+using namespace DirectX::SimpleMath;
 
 class Model3D {
 private:
@@ -474,13 +487,13 @@ public:
 
         for (MeshData* mesh : meshes) {
             for (const Vertex& vertex : mesh->vertices) {
-                minPos.x = min(minPos.x, vertex.position.x);
-                minPos.y = min(minPos.y, vertex.position.y);
-                minPos.z = min(minPos.z, vertex.position.z);
+                minPos.x = std::min(minPos.x, vertex.position.x);
+                minPos.y = std::min(minPos.y, vertex.position.y);
+                minPos.z = std::min(minPos.z, vertex.position.z);
 
-                maxPos.x = max(maxPos.x, vertex.position.x);
-                maxPos.y = max(maxPos.y, vertex.position.y);
-                maxPos.z = max(maxPos.z, vertex.position.z);
+                maxPos.x = std::max(maxPos.x, vertex.position.x);
+                maxPos.y = std::max(maxPos.y, vertex.position.y);
+                maxPos.z = std::max(maxPos.z, vertex.position.z);
             }
         }
 

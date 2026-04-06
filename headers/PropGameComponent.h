@@ -1,7 +1,6 @@
 #pragma once
 #include "GameComponent.h"
 #include "Model3D.h"
-#include <DirectXCollision.h>
 
 class PropGameComponent : public GameComponent {
 private:

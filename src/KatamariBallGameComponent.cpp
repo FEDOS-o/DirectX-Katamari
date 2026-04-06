@@ -4,11 +4,14 @@
 #include "Game.h"
 #include <d3dcompiler.h>
 #include <iostream>
+#include <cmath>
+#include <wincodec.h>
 
 #pragma comment(lib, "d3dcompiler.lib")
+#pragma comment(lib, "windowscodecs.lib")
 
 KatamariBallGameComponent::KatamariBallGameComponent(Game* game, OrbitalCameraGameComponent* cam,
-    const Vector3& startPos, float startRadius)
+    const Vector3& startPos, float startRadius, const std::string& textureFile)
     : GameComponent(game)
     , position(startPos)
     , radius(startRadius)
@@ -18,7 +21,7 @@ KatamariBallGameComponent::KatamariBallGameComponent(Game* game, OrbitalCameraGa
     , rotationAngle(0)
     , camera(cam)
     , growAnimationTime(0)
-    , ballColor(0.2f, 0.7f, 0.2f, 1.0f)
+    , ballColor(1.0f, 1.0f, 1.0f, 1.0f)  // Белый для текстуры
     , sphereInitialized(false)
     , debugVertexBuffer(nullptr)
     , debugIndexBuffer(nullptr)
@@ -27,6 +30,9 @@ KatamariBallGameComponent::KatamariBallGameComponent(Game* game, OrbitalCameraGa
     , debugLayout(nullptr)
     , debugConstantBuffer(nullptr)
     , debugInitialized(false)
+    , ballTexture(nullptr)
+    , textureLoaded(false)
+    , texturePath(textureFile)
 {
 }
 
@@ -34,11 +40,89 @@ KatamariBallGameComponent::~KatamariBallGameComponent() {
     DestroyResources();
 }
 
+void KatamariBallGameComponent::LoadTexture(const std::string& filepath) {
+    if (!game || !game->Device) return;
+    if (textureLoaded) return;
+
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+    Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory;
+    hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
+
+    if (SUCCEEDED(hr)) {
+        Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+        std::wstring wpath(filepath.begin(), filepath.end());
+        hr = wicFactory->CreateDecoderFromFilename(wpath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+
+        if (SUCCEEDED(hr)) {
+            Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+            hr = decoder->GetFrame(0, &frame);
+
+            if (SUCCEEDED(hr)) {
+                Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+                hr = wicFactory->CreateFormatConverter(&converter);
+
+                if (SUCCEEDED(hr)) {
+                    hr = converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0f, WICBitmapPaletteTypeCustom);
+
+                    if (SUCCEEDED(hr)) {
+                        UINT width, height;
+                        converter->GetSize(&width, &height);
+
+                        std::vector<BYTE> pixels(width * height * 4);
+                        hr = converter->CopyPixels(nullptr, width * 4, (UINT)pixels.size(), pixels.data());
+
+                        if (SUCCEEDED(hr)) {
+                            D3D11_TEXTURE2D_DESC texDesc = {};
+                            texDesc.Width = width;
+                            texDesc.Height = height;
+                            texDesc.MipLevels = 1;
+                            texDesc.ArraySize = 1;
+                            texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                            texDesc.SampleDesc.Count = 1;
+                            texDesc.SampleDesc.Quality = 0;
+                            texDesc.Usage = D3D11_USAGE_DEFAULT;
+                            texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                            texDesc.CPUAccessFlags = 0;
+                            texDesc.MiscFlags = 0;
+
+                            D3D11_SUBRESOURCE_DATA initData = {};
+                            initData.pSysMem = pixels.data();
+                            initData.SysMemPitch = width * 4;
+
+                            ID3D11Texture2D* tex = nullptr;
+                            hr = game->Device->CreateTexture2D(&texDesc, &initData, &tex);
+
+                            if (SUCCEEDED(hr) && tex) {
+                                hr = game->Device->CreateShaderResourceView(tex, nullptr, &ballTexture);
+                                tex->Release();
+
+                                if (SUCCEEDED(hr) && ballTexture) {
+                                    textureLoaded = true;
+                                    std::cout << "[Ball] Texture loaded: " << filepath << std::endl;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    CoUninitialize();
+}
+
 void KatamariBallGameComponent::Initialize() {
     if (!sphereInitialized && game && game->Device) {
         sphereRenderer.Initialize(game, ballColor, 48);
         sphereInitialized = true;
         InitDebugCollider();
+
+        // Загружаем текстуру, если указана
+        if (!texturePath.empty()) {
+            LoadTexture(texturePath);
+        }
+
         std::cout << "[Ball] Initialized! Radius: " << radius << std::endl;
     }
 }
@@ -145,7 +229,7 @@ void KatamariBallGameComponent::DrawDebugCollider() {
         indices.push_back(i + 1);
     }
 
-    int xzStart = vertices.size() - (segments + 1);
+    int xzStart = (int)vertices.size() - (segments + 1);
 
     // XY plane (vertical)
     for (int i = 0; i <= segments; i++) {
@@ -242,6 +326,7 @@ void KatamariBallGameComponent::Update(float deltaTime) {
     }
 
     UpdateAttachedObjects(deltaTime);
+    CheckCollisions(props);
 }
 
 void KatamariBallGameComponent::ProcessInput(float deltaTime) {
@@ -287,6 +372,7 @@ void KatamariBallGameComponent::CheckCollisions(std::vector<GameComponent*>& pro
         if (!prop) continue;
         if (attachedSet.find(prop) != attachedSet.end()) continue;
 
+        // Ручная проверка коллизии сферы со сферой
         Vector3 ballCenter = position;
         Vector3 propCenter = prop->GetCollisionCenter();
         float propRadius = prop->GetCollisionRadius();
@@ -294,20 +380,11 @@ void KatamariBallGameComponent::CheckCollisions(std::vector<GameComponent*>& pro
         float dx = ballCenter.x - propCenter.x;
         float dy = ballCenter.y - propCenter.y;
         float dz = ballCenter.z - propCenter.z;
-        float distance = sqrt(dx * dx + dy * dy + dz * dz);
-
+        float distanceSquared = dx * dx + dy * dy + dz * dz;
         float collisionDistance = radius + propRadius;
+        float collisionDistanceSquared = collisionDistance * collisionDistance;
 
-        // Отладка - выводим каждый кадр для ближайших объектов
-        if (distance < 2.0f) {
-            std::cout << "[COLLISION CHECK] Ball=(" << ballCenter.x << "," << ballCenter.y << "," << ballCenter.z << ")"
-                << " Prop=(" << propCenter.x << "," << propCenter.y << "," << propCenter.z << ")"
-                << " Dist=" << distance << " Need=" << collisionDistance
-                << " BallR=" << radius << " PropR=" << propRadius << std::endl;
-        }
-
-        if (distance < collisionDistance) {
-            std::cout << "!!! COLLISION DETECTED !!! Distance: " << distance << " < " << collisionDistance << std::endl;
+        if (distanceSquared < collisionDistanceSquared) {
             AttachProp(prop);
         }
     }
@@ -387,9 +464,11 @@ void KatamariBallGameComponent::DrawBall() {
         Matrix::CreateRotationY(rotationAngle) *
         Matrix::CreateTranslation(position);
 
+    // Передаем текстуру в рендерер (нужно будет обновить SphereRenderer)
     sphereRenderer.Draw(game, world, ballColor,
         game->Camera->GetViewMatrix(),
-        game->Camera->GetProjectionMatrix());
+        game->Camera->GetProjectionMatrix(),
+        ballTexture);  // Добавляем параметр текстуры
 }
 
 void KatamariBallGameComponent::DestroyResources() {
@@ -404,6 +483,8 @@ void KatamariBallGameComponent::DestroyResources() {
     if (debugPS) { debugPS->Release(); debugPS = nullptr; }
     if (debugLayout) { debugLayout->Release(); debugLayout = nullptr; }
     if (debugConstantBuffer) { debugConstantBuffer->Release(); debugConstantBuffer = nullptr; }
+
+    if (ballTexture) { ballTexture->Release(); ballTexture = nullptr; }
 
     debugInitialized = false;
 }

@@ -4,6 +4,7 @@
 #include <vector>
 #include <random>
 #include <cmath>
+#include <algorithm>
 
 using namespace DirectX;
 
@@ -15,6 +16,7 @@ private:
     ID3D11VertexShader* vertexShader;
     ID3D11PixelShader* pixelShader;
     ID3D11Buffer* constantBuffer;
+    ID3D11SamplerState* samplerState;
     UINT indexCount;
     bool initialized;
 
@@ -22,7 +24,7 @@ public:
     SphereRenderer() : vertexBuffer(nullptr), indexBuffer(nullptr),
         inputLayout(nullptr), vertexShader(nullptr),
         pixelShader(nullptr), constantBuffer(nullptr),
-        indexCount(0), initialized(false) {
+        samplerState(nullptr), indexCount(0), initialized(false) {
     }
 
     ~SphereRenderer() { DestroyResources(); }
@@ -33,11 +35,13 @@ public:
         CreateSphere(game, segments, baseColor);
         CreateShaders(game);
         CreateConstantBuffer(game);
+        CreateSamplerState(game);
         initialized = true;
     }
 
     void Draw(Game* game, const Matrix& world, const Vector4& color,
-        const Matrix& view, const Matrix& projection) {
+        const Matrix& view, const Matrix& projection,
+        ID3D11ShaderResourceView* texture = nullptr) {
         if (!initialized || !game || !game->Context) {
             return;
         }
@@ -48,14 +52,16 @@ public:
             Matrix worldViewProj;
             Vector4 objectColor;
             float time;
-            Vector3 padding;
+            int useTexture;
+            Vector2 padding;
         };
 
         ExtendedConstantBuffer cb;
         cb.worldViewProj = wvp.Transpose();
         cb.objectColor = color;
         cb.time = game->TotalTime;
-        cb.padding = Vector3(0, 0, 0);
+        cb.useTexture = (texture != nullptr) ? 1 : 0;
+        cb.padding = Vector2(0, 0);
 
         game->Context->UpdateSubresource(constantBuffer, 0, nullptr, &cb, 0, 0);
 
@@ -68,6 +74,12 @@ public:
         game->Context->VSSetShader(vertexShader, nullptr, 0);
         game->Context->VSSetConstantBuffers(0, 1, &constantBuffer);
         game->Context->PSSetShader(pixelShader, nullptr, 0);
+        game->Context->PSSetConstantBuffers(0, 1, &constantBuffer);
+        game->Context->PSSetSamplers(0, 1, &samplerState);
+
+        if (texture) {
+            game->Context->PSSetShaderResources(0, 1, &texture);
+        }
 
         game->Context->DrawIndexed(indexCount, 0, 0);
     }
@@ -79,6 +91,7 @@ public:
         if (vertexShader) { vertexShader->Release(); vertexShader = nullptr; }
         if (pixelShader) { pixelShader->Release(); pixelShader = nullptr; }
         if (constantBuffer) { constantBuffer->Release(); constantBuffer = nullptr; }
+        if (samplerState) { samplerState->Release(); samplerState = nullptr; }
         initialized = false;
     }
 
@@ -101,19 +114,19 @@ private:
                 float y = cosTheta;
                 float z = sinPhi * sinTheta;
 
+                // UV координаты для текстуры
+                float u = (float)lon / segments;
+                float v = (float)lat / segments;
+
                 float r = baseColor.x;
                 float g = baseColor.y;
                 float b = baseColor.z;
 
-                r += sin(theta * 8.0f) * 0.1f;
-                g += cos(phi * 8.0f) * 0.1f;
-                b += sin((theta + phi) * 8.0f) * 0.1f;
-
-                r = max(0.1f, min(1.0f, r));
-                g = max(0.1f, min(1.0f, g));
-                b = max(0.1f, min(1.0f, b));
-
-                vertices.push_back({ Vector3(x, y, z), Vector4(r, g, b, 1.0f) });
+                Vertex vert;
+                vert.position = Vector3(x, y, z);
+                vert.color = Vector4(r, g, b, 1.0f);
+                vert.texCoord = Vector2(u, v);
+                vertices.push_back(vert);
             }
         }
 
@@ -165,32 +178,27 @@ private:
                 float4x4 worldViewProj;
                 float4 objectColor;
                 float time;
-                float3 padding;
-            };
+                int useTexture;
+                float2 padding;
+            }
 
             struct VSInput { 
                 float3 position : POSITION; 
-                float4 color : COLOR; 
+                float4 color : COLOR;
+                float2 texCoord : TEXCOORD;
             };
 
             struct VSOutput { 
                 float4 position : SV_POSITION; 
-                float4 color : COLOR; 
+                float4 color : COLOR;
+                float2 texCoord : TEXCOORD0;
             };
 
             VSOutput VSMain(VSInput input) {
                 VSOutput output;
                 output.position = mul(float4(input.position, 1.0f), worldViewProj);
-    
-                // Анимируем цвет на основе времени и позиции
-                float noise = sin(input.position.x * 5.0f + time) * 
-                              cos(input.position.y * 5.0f + time * 1.3f) * 
-                              sin(input.position.z * 5.0f + time * 0.7f);
-                noise = noise * 0.01f + 0.7f;
-    
-                output.color = input.color * noise;
-                output.color.a = 1.0f;
-    
+                output.color = input.color;
+                output.texCoord = input.texCoord;
                 return output;
             }
         )";
@@ -210,14 +218,29 @@ private:
         }
 
         const char* psCode = R"(
-        struct VSOutput { 
-            float4 position : SV_POSITION; 
-            float4 color : COLOR; 
-        };
+            Texture2D objTexture : register(t0);
+            SamplerState objSampler : register(s0);
+            
+            cbuffer ConstantBuffer : register(b0) {
+                float4x4 worldViewProj;
+                float4 objectColor;
+                float time;
+                int useTexture;
+                float2 padding;
+            }
 
-        float4 PSMain(VSOutput input) : SV_TARGET { 
-            return input.color; 
-        }
+            struct VSOutput { 
+                float4 position : SV_POSITION; 
+                float4 color : COLOR;
+                float2 texCoord : TEXCOORD0;
+            };
+
+            float4 PSMain(VSOutput input) : SV_TARGET { 
+                if (useTexture != 0) {
+                    return objTexture.Sample(objSampler, input.texCoord);
+                }
+                return input.color;
+            }
         )";
 
         ID3DBlob* psBlob = nullptr;
@@ -238,10 +261,11 @@ private:
 
         D3D11_INPUT_ELEMENT_DESC elements[] = {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
+            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
         };
 
-        game->Device->CreateInputLayout(elements, 2, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
+        game->Device->CreateInputLayout(elements, 3, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
 
         vsBlob->Release();
         psBlob->Release();
@@ -253,7 +277,8 @@ private:
             Matrix worldViewProj;
             Vector4 objectColor;
             float time;
-            Vector3 padding;
+            int useTexture;
+            Vector2 padding;
         };
 
         D3D11_BUFFER_DESC desc = {};
@@ -261,5 +286,17 @@ private:
         desc.ByteWidth = sizeof(ExtendedConstantBuffer);
         desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
         game->Device->CreateBuffer(&desc, nullptr, &constantBuffer);
+    }
+
+    void CreateSamplerState(Game* game) {
+        D3D11_SAMPLER_DESC samplerDesc = {};
+        samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+        samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+        samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+        samplerDesc.MinLOD = 0;
+        samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+        game->Device->CreateSamplerState(&samplerDesc, &samplerState);
     }
 };
