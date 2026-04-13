@@ -51,12 +51,6 @@
     <ClInclude Include="headers\SphereRenderer.h">
       <Filter>Header Files\Render</Filter>
     </ClInclude>
-    <ClInclude Include="headers\BackgroundGameComponent.h">
-      <Filter>Header Files\GameComponents</Filter>
-    </ClInclude>
-    <ClInclude Include="headers\CelestialBodyGameComponent.h">
-      <Filter>Header Files\GameComponents</Filter>
-    </ClInclude>
     <ClInclude Include="headers\OrbitalCameraGameComponent.h">
       <Filter>Header Files\GameComponents</Filter>
     </ClInclude>

@@ -19,9 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="headers\BackgroundGameComponent.h" />
     <ClInclude Include="headers\Camera.h" />
-    <ClInclude Include="headers\CelestialBodyGameComponent.h" />
     <ClInclude Include="headers\Core.h" />
     <ClInclude Include="headers\Delegates.h" />
     <ClInclude Include="headers\DisplayWin32.h" />

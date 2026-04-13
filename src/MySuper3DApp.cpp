@@ -48,7 +48,7 @@ int main() {
 
     std::vector<std::string> models = {
         "models/childrens_chair/childrens_chair.obj",
-        "models/BarrelNewOBJ/BarrelNewOBJ.obj",
+        //"models/BarrelNewOBJ/BarrelNewOBJ.obj",
         "models/coffee_table/coffee_table.obj",
         //"models/diamond/Diamond.obj",
         "models/hammer/hammer.obj",
