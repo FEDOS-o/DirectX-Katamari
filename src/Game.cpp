@@ -65,8 +65,13 @@ Game::Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG 
     FirstPersonCamera = new FirstPersonCameraGameComponent(this, Vector3(0, 5, 15));
     Camera = OrbitalCamera;
 
+
+    SunLight.direction = Vector3(0.5f, -1.0f, 0.3f);
+    SunLight.direction.Normalize();
+
     PrevTime = std::chrono::steady_clock::now();
     StartTime = PrevTime;
+
 }
 
 Game::~Game() {
@@ -205,6 +210,7 @@ void Game::Update() {
         component->Update(deltaTime);
     }
 
+    UpdateLight(deltaTime);
     UpdateInternal(deltaTime);
 }
 
@@ -408,4 +414,13 @@ void Game::SwitchCamera() {
         FirstPersonCamera->ResetCamera();
         Camera = FirstPersonCamera;
     }
+}
+
+
+void Game::UpdateLight(float deltaTime) {
+     static float angle = 0;
+     angle += deltaTime * 0.1f;
+     SunLight.direction.x = sin(angle);
+     SunLight.direction.z = cos(angle);
+     SunLight.direction.Normalize();
 }

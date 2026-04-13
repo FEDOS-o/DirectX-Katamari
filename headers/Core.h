@@ -1,3 +1,4 @@
+// Core.h
 #pragma once
 #include <SimpleMath.h>
 
@@ -7,9 +8,39 @@ struct Vertex {
     Vector3 position;
     Vector4 color;
     Vector2 texCoord;
+    Vector3 normal;
 };
 
-struct ConstantBuffer {
-    Matrix worldViewProj;
+struct VSConstantBuffer {
+    Matrix world;
+    Matrix view;
+    Matrix projection;
+    Matrix worldInvTranspose;
+};
+
+
+struct PSConstantBuffer {
+    Vector4 cameraPosition;
     Vector4 objectColor;
+    int useTexture;
+    int hasMaterial;
+    float padding[2];
+};
+
+
+struct MaterialBuffer {
+    Vector4 ambient;
+    Vector4 diffuse;
+    Vector4 specular;
+    float shininess;
+    float padding[3];
+};
+
+
+struct DirectionalLightBuffer {
+    Vector4 ambient;
+    Vector4 diffuse;
+    Vector4 specular;
+    Vector3 direction;
+    float padding;
 };

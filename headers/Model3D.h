@@ -12,9 +12,10 @@
 #include <assimp/postprocess.h>
 #include "Game.h"
 #include "Core.h"
+#include "Lighting.h"
 #include "Camera.h"
 
-#include <algorithm>  // ДОБАВИТЬ ЭТО!
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -26,7 +27,6 @@
 #include <DirectXCollision.h>
 
 #pragma comment(lib, "windowscodecs.lib")
-
 
 using namespace DirectX::SimpleMath;
 
@@ -40,28 +40,16 @@ private:
         int height;
 
         TextureData() : textureView(nullptr), loaded(false), width(0), height(0) {}
-
-        void Release() {
-            if (textureView) {
-                textureView->Release();
-                textureView = nullptr;
-            }
-        }
-
-        ~TextureData() {
-            Release();
-        }
-
+        void Release() { if (textureView) { textureView->Release(); textureView = nullptr; } }
+        ~TextureData() { Release(); }
         TextureData(const TextureData&) = delete;
         TextureData& operator=(const TextureData&) = delete;
-
         TextureData(TextureData&& other) noexcept
             : textureView(other.textureView), path(std::move(other.path)),
             loaded(other.loaded), width(other.width), height(other.height) {
             other.textureView = nullptr;
             other.loaded = false;
         }
-
         TextureData& operator=(TextureData&& other) noexcept {
             if (this != &other) {
                 Release();
@@ -87,16 +75,9 @@ private:
 
         MeshData() : vertexBuffer(nullptr), indexBuffer(nullptr), indexCount(0), materialIndex(-1) {}
         ~MeshData() {
-            if (vertexBuffer) {
-                vertexBuffer->Release();
-                vertexBuffer = nullptr;
-            }
-            if (indexBuffer) {
-                indexBuffer->Release();
-                indexBuffer = nullptr;
-            }
+            if (vertexBuffer) { vertexBuffer->Release(); vertexBuffer = nullptr; }
+            if (indexBuffer) { indexBuffer->Release(); indexBuffer = nullptr; }
         }
-
         MeshData(const MeshData&) = delete;
         MeshData& operator=(const MeshData&) = delete;
     };
@@ -109,7 +90,7 @@ private:
         std::string diffuseTexturePath;
         bool hasTexture;
 
-        MaterialData() : diffuseColor(1, 1, 1, 1), specularColor(1, 1, 1, 1),
+        MaterialData() : diffuseColor(1, 1, 1, 1), specularColor(0.5f, 0.5f, 0.5f, 1),
             ambientColor(0.2f, 0.2f, 0.2f, 1), shininess(32.0f), hasTexture(false) {
         }
     };
@@ -130,18 +111,15 @@ private:
     ID3D11VertexShader* vertexShader;
     ID3D11PixelShader* pixelShader;
     ID3D11InputLayout* inputLayout;
-    ID3D11Buffer* constantBuffer;
+    ID3D11Buffer* vsConstantBuffer;
+    ID3D11Buffer* psConstantBuffer;
+    ID3D11Buffer* materialBuffer;
+    ID3D11Buffer* lightBuffer;
     ID3D11SamplerState* samplerState;
     bool shadersInitialized;
 
     DirectX::BoundingBox localBoundingBox;
     bool boundingBoxCalculated;
-
-    struct ConstantBufferData {
-        Matrix worldViewProj;
-        int useTexture;
-        float padding[3];
-    };
 
     void UpdateWorldMatrix() {
         worldMatrix = Matrix::CreateScale(scale) *
@@ -171,6 +149,17 @@ private:
             vertex.position.x = mesh->mVertices[i].x;
             vertex.position.y = mesh->mVertices[i].y;
             vertex.position.z = mesh->mVertices[i].z;
+
+            // Загрузка нормалей
+            if (mesh->HasNormals()) {
+                vertex.normal.x = mesh->mNormals[i].x;
+                vertex.normal.y = mesh->mNormals[i].y;
+                vertex.normal.z = mesh->mNormals[i].z;
+                vertex.normal.Normalize();
+            }
+            else {
+                vertex.normal = Vector3(0, 1, 0);
+            }
 
             if (mesh->mTextureCoords[0]) {
                 vertex.texCoord.x = mesh->mTextureCoords[0][i].x;
@@ -351,29 +340,42 @@ private:
         if (shadersInitialized) return;
 
         const char* vsCode = R"(
-            cbuffer ConstantBuffer : register(b0) {
-                float4x4 worldViewProj;
-                int useTexture;
-                float3 padding;
-            };
-            
+            cbuffer VSConstantBuffer : register(b0) {
+                float4x4 world;
+                float4x4 view;
+                float4x4 projection;
+                float4x4 worldInvTranspose;
+            }
+
             struct VSInput {
                 float3 position : POSITION;
                 float4 color : COLOR;
                 float2 texCoord : TEXCOORD;
+                float3 normal : NORMAL;
             };
-            
+
             struct VSOutput {
                 float4 position : SV_POSITION;
                 float4 color : COLOR;
                 float2 texCoord : TEXCOORD0;
+                float3 worldNormal : TEXCOORD1;
+                float3 worldPosition : TEXCOORD2;
             };
-            
+
             VSOutput VSMain(VSInput input) {
                 VSOutput output;
-                output.position = mul(float4(input.position, 1.0f), worldViewProj);
+                
+                float4 worldPos = mul(float4(input.position, 1.0f), world);
+                output.worldPosition = worldPos.xyz;
+                output.position = mul(worldPos, view);
+                output.position = mul(output.position, projection);
+                
+                output.worldNormal = mul(float4(input.normal, 0.0f), worldInvTranspose).xyz;
+                output.worldNormal = normalize(output.worldNormal);
+                
                 output.color = input.color;
                 output.texCoord = input.texCoord;
+                
                 return output;
             }
         )";
@@ -391,28 +393,65 @@ private:
         }
 
         const char* psCode = R"(
+            cbuffer PSConstantBuffer : register(b0) {
+                float4 cameraPosition;
+                float4 objectColor;
+                int useTexture;
+                int hasMaterial;
+                float2 padding;
+            }
+            
+            cbuffer MaterialBuffer : register(b1) {
+                float4 materialAmbient;
+                float4 materialDiffuse;
+                float4 materialSpecular;
+                float shininess;
+                float3 materialPadding;
+            }
+            
+            cbuffer DirectionalLightBuffer : register(b2) {
+                float4 lightAmbient;
+                float4 lightDiffuse;
+                float4 lightSpecular;
+                float3 lightDirection;
+                float lightPadding;
+            }
+            
             Texture2D objTexture : register(t0);
             SamplerState objSampler : register(s0);
-            
-            cbuffer ConstantBuffer : register(b0) {
-                float4x4 worldViewProj;
-                int useTexture;
-                float3 padding;
-            };
             
             struct VSOutput {
                 float4 position : SV_POSITION;
                 float4 color : COLOR;
                 float2 texCoord : TEXCOORD0;
+                float3 worldNormal : TEXCOORD1;
+                float3 worldPosition : TEXCOORD2;
             };
             
             float4 PSMain(VSOutput input) : SV_TARGET {
-                float4 result = input.color;
+                float3 normal = normalize(input.worldNormal);
+                float3 lightDir = normalize(-lightDirection);
+                float3 viewDir = normalize(cameraPosition.xyz - input.worldPosition);
+                float3 reflectDir = reflect(-lightDir, normal);
+                
+                float3 ambient = lightAmbient.rgb * materialAmbient.rgb;
+                float diff = max(dot(normal, lightDir), 0.0f);
+                float3 diffuse = lightDiffuse.rgb * diff * materialDiffuse.rgb;
+                float spec = pow(max(dot(viewDir, reflectDir), 0.0f), shininess);
+                float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
+                float3 result = ambient + diffuse + specular;
+                
+                float4 texColor = float4(1, 1, 1, 1);
                 if (useTexture != 0) {
-                    float4 texColor = objTexture.Sample(objSampler, input.texCoord);
-                    result = texColor;
+                    texColor = objTexture.Sample(objSampler, input.texCoord);
+                    result *= texColor.rgb;
+                } else if (hasMaterial != 0) {
+                    result *= materialDiffuse.rgb;
+                } else {
+                    result *= input.color.rgb;
                 }
-                return result;
+                
+                return float4(result, 1.0f);
             }
         )";
 
@@ -433,16 +472,31 @@ private:
         D3D11_INPUT_ELEMENT_DESC elements[] = {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
             {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
-            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
+            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+            {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
         };
 
-        game->Device->CreateInputLayout(elements, 3, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
+        game->Device->CreateInputLayout(elements, 4, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
+
+        vsBlob->Release();
+        psBlob->Release();
+        if (error) error->Release();
 
         D3D11_BUFFER_DESC bufferDesc = {};
         bufferDesc.Usage = D3D11_USAGE_DEFAULT;
-        bufferDesc.ByteWidth = sizeof(ConstantBufferData);
         bufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        game->Device->CreateBuffer(&bufferDesc, nullptr, &constantBuffer);
+
+        bufferDesc.ByteWidth = sizeof(VSConstantBuffer);
+        game->Device->CreateBuffer(&bufferDesc, nullptr, &vsConstantBuffer);
+
+        bufferDesc.ByteWidth = sizeof(PSConstantBuffer);
+        game->Device->CreateBuffer(&bufferDesc, nullptr, &psConstantBuffer);
+
+        bufferDesc.ByteWidth = sizeof(MaterialBuffer);
+        game->Device->CreateBuffer(&bufferDesc, nullptr, &materialBuffer);
+
+        bufferDesc.ByteWidth = sizeof(DirectionalLightBuffer);
+        game->Device->CreateBuffer(&bufferDesc, nullptr, &lightBuffer);
 
         D3D11_SAMPLER_DESC samplerDesc = {};
         samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
@@ -454,17 +508,14 @@ private:
         samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
         game->Device->CreateSamplerState(&samplerDesc, &samplerState);
 
-        vsBlob->Release();
-        psBlob->Release();
-        if (error) error->Release();
-
         shadersInitialized = true;
     }
 
 public:
     Model3D(Game* inGame) : game(inGame), isValid(false), position(0, 0, 0), rotation(0, 0, 0),
         scale(1, 1, 1), worldMatrixDirty(true), vertexShader(nullptr),
-        pixelShader(nullptr), inputLayout(nullptr), constantBuffer(nullptr),
+        pixelShader(nullptr), inputLayout(nullptr), vsConstantBuffer(nullptr),
+        psConstantBuffer(nullptr), materialBuffer(nullptr), lightBuffer(nullptr),
         samplerState(nullptr), shadersInitialized(false), boundingBoxCalculated(false) {
         localBoundingBox.Center = Vector3(0, 0, 0);
         localBoundingBox.Extents = Vector3(0.5f, 0.5f, 0.5f);
@@ -475,8 +526,24 @@ public:
         if (vertexShader) vertexShader->Release();
         if (pixelShader) pixelShader->Release();
         if (inputLayout) inputLayout->Release();
-        if (constantBuffer) constantBuffer->Release();
+        if (vsConstantBuffer) vsConstantBuffer->Release();
+        if (psConstantBuffer) psConstantBuffer->Release();
+        if (materialBuffer) materialBuffer->Release();
+        if (lightBuffer) lightBuffer->Release();
         if (samplerState) samplerState->Release();
+    }
+
+    void UpdateLight(Game* game, const DirectionalLight& light) {
+        if (!lightBuffer || !game || !game->Context) return;
+
+        DirectionalLightBuffer lightBufferData;
+        lightBufferData.ambient = light.ambient;
+        lightBufferData.diffuse = light.diffuse;
+        lightBufferData.specular = light.specular;
+        lightBufferData.direction = light.direction;
+        lightBufferData.padding = 0;
+
+        game->Context->UpdateSubresource(lightBuffer, 0, nullptr, &lightBufferData, 0, 0);
     }
 
     void CalculateLocalBoundingBox() {
@@ -501,19 +568,12 @@ public:
         localBoundingBox.Center = (minPos + maxPos) / 2.0f;
         localBoundingBox.Extents = size / 2.0f;
         boundingBoxCalculated = true;
-
-        std::cout << "[Model3D] BoundingBox - Center: ("
-            << localBoundingBox.Center.x << ", " << localBoundingBox.Center.y << ", " << localBoundingBox.Center.z
-            << "), Extents: (" << localBoundingBox.Extents.x << ", "
-            << localBoundingBox.Extents.y << ", " << localBoundingBox.Extents.z << ")" << std::endl;
     }
 
     DirectX::BoundingBox GetLocalBoundingBox() const { return localBoundingBox; }
 
     bool Load(const std::string& path) {
-        if (!game || !game->Device) {
-            return false;
-        }
+        if (!game || !game->Device) return false;
 
         Unload();
         modelPath = path;
@@ -580,7 +640,8 @@ public:
     void Draw() {
         if (!isValid || !game || !game->Context || !game->Camera) return;
         if (!shadersInitialized) return;
-        if (!vertexShader || !pixelShader || !inputLayout || !constantBuffer) return;
+
+        UpdateLight(game, game->SunLight);
 
         if (worldMatrixDirty) {
             UpdateWorldMatrix();
@@ -588,22 +649,58 @@ public:
 
         Matrix view = game->Camera->GetViewMatrix();
         Matrix projection = game->Camera->GetProjectionMatrix();
-        Matrix wvp = worldMatrix * view * projection;
+
+        VSConstantBuffer vsCB;
+        vsCB.world = worldMatrix.Transpose();
+        vsCB.view = view.Transpose();
+        vsCB.projection = projection.Transpose();
+
+        Matrix worldInv = worldMatrix;
+        worldInv.Invert();
+        vsCB.worldInvTranspose = worldInv.Transpose();
+
+        game->Context->UpdateSubresource(vsConstantBuffer, 0, nullptr, &vsCB, 0, 0);
+
+        PSConstantBuffer psCB; 
+        Vector3 camPos = game->Camera->GetPosition();
+        psCB.cameraPosition = Vector4(camPos.x, camPos.y, camPos.z, 1.0f);
+        psCB.objectColor = Vector4(1, 1, 1, 1);
+        psCB.useTexture = 0;
+        psCB.hasMaterial = 1;
+
+        game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, &psCB, 0, 0);
 
         game->Context->IASetInputLayout(inputLayout);
         game->Context->VSSetShader(vertexShader, nullptr, 0);
+        game->Context->VSSetConstantBuffers(0, 1, &vsConstantBuffer);
         game->Context->PSSetShader(pixelShader, nullptr, 0);
+        game->Context->PSSetConstantBuffers(0, 1, &psConstantBuffer);
+        game->Context->PSSetConstantBuffers(1, 1, &materialBuffer);
+        game->Context->PSSetConstantBuffers(2, 1, &lightBuffer);
         game->Context->PSSetSamplers(0, 1, &samplerState);
         game->Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
         for (MeshData* mesh : meshes) {
             if (!mesh->vertexBuffer || !mesh->indexBuffer) continue;
 
-            ConstantBufferData cb = {};
-            cb.worldViewProj = wvp.Transpose();
-            cb.useTexture = 0;
+            MaterialBuffer matBuffer;
+            if (mesh->materialIndex >= 0 && mesh->materialIndex < (int)materials.size()) {
+                MaterialData& mat = materials[mesh->materialIndex];
+                matBuffer.ambient = mat.ambientColor;
+                matBuffer.diffuse = mat.diffuseColor;
+                matBuffer.specular = mat.specularColor;
+                matBuffer.shininess = mat.shininess;
+            }
+            else {
+                matBuffer.ambient = Vector4(0.2f, 0.2f, 0.2f, 1.0f);
+                matBuffer.diffuse = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+                matBuffer.specular = Vector4(0.5f, 0.5f, 0.5f, 1.0f);
+                matBuffer.shininess = 32.0f;
+            }
+            game->Context->UpdateSubresource(materialBuffer, 0, nullptr, &matBuffer, 0, 0);
 
             ID3D11ShaderResourceView* currentTexture = nullptr;
+            int useTexture = 0;
 
             if (mesh->materialIndex >= 0 && mesh->materialIndex < (int)materials.size()) {
                 MaterialData& mat = materials[mesh->materialIndex];
@@ -611,15 +708,20 @@ public:
                     auto it = textures.find(mat.diffuseTexturePath);
                     if (it != textures.end() && it->second.loaded && it->second.textureView) {
                         currentTexture = it->second.textureView;
-                        cb.useTexture = 1;
+                        useTexture = 1;
                     }
                 }
             }
 
+            PSConstantBuffer psCB2;
+            Vector3 camPos = game->Camera->GetPosition();
+            psCB2.cameraPosition = Vector4(camPos.x, camPos.y, camPos.z, 1.0f);
+            psCB2.objectColor = Vector4(1, 1, 1, 1);
+            psCB2.useTexture = useTexture;
+            psCB2.hasMaterial = 1;
+            game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, &psCB2, 0, 0);
+
             game->Context->PSSetShaderResources(0, 1, &currentTexture);
-            game->Context->UpdateSubresource(constantBuffer, 0, nullptr, &cb, 0, 0);
-            game->Context->VSSetConstantBuffers(0, 1, &constantBuffer);
-            game->Context->PSSetConstantBuffers(0, 1, &constantBuffer);
 
             UINT stride = sizeof(Vertex);
             UINT offset = 0;

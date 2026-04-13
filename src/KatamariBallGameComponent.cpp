@@ -589,11 +589,10 @@ bool KatamariBallGameComponent::AttachProp(PropGameComponent* prop) {
     targetRadius = newRadius;
     growAnimationTime = 0.3f;
 
-    float colorFactor = 1.0f + (attachedObjects.size() * 0.015f);
+    /*float colorFactor = 1.0f + (attachedObjects.size() * 0.015f);
     if (colorFactor > 2.0f) colorFactor = 2.0f;
-    ballColor = Vector4(0.2f * colorFactor, 0.7f, 0.2f, 1.0f);
+    ballColor = Vector4(0.2f * colorFactor, 0.7f, 0.2f, 1.0f);*/
 
-    // Сбрасываем углы перемещения для нового объекта
     attachedMoveAngleH = 0;
     attachedMoveAngleV = 0;
 
@@ -658,6 +657,8 @@ void KatamariBallGameComponent::DrawBall() {
 
     Vector3 rotAxis = Vector3(1, 0, 0);
 
+    sphereRenderer.UpdateLight(game, game->SunLight);
+
     float speed = velocity.Length();
     if (speed > 0.01f) {
         Vector3 moveDir = velocity;
@@ -680,10 +681,15 @@ void KatamariBallGameComponent::DrawBall() {
         Matrix::CreateFromQuaternion(rotation) *
         Matrix::CreateTranslation(position);
 
+    // Создаем материал для шара
+    Material ballMaterial(ballColor, 64.0f);  // Высокий shininess для блестящего шара
+    ballMaterial.specular = Vector4(0.8f, 0.8f, 0.8f, 1.0f);
+
     sphereRenderer.Draw(game, world, ballColor,
         game->Camera->GetViewMatrix(),
         game->Camera->GetProjectionMatrix(),
-        ballTexture);
+        ballTexture,
+        &ballMaterial);
 }
 
 void KatamariBallGameComponent::DestroyResources() {

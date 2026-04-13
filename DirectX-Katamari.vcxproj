@@ -30,12 +30,14 @@
     <ClInclude Include="headers\InputDevice.h" />
     <ClInclude Include="headers\KatamariBallGameComponent.h" />
     <ClInclude Include="headers\Keys.h" />
+    <ClInclude Include="headers\Lighting.h" />
     <ClInclude Include="headers\Model3D.h" />
     <ClInclude Include="headers\OrbitalCameraGameComponent.h" />
     <ClInclude Include="headers\PropGameComponent.h" />
     <ClInclude Include="headers\Rect.h" />
     <ClInclude Include="headers\RectRenderer.h" />
     <ClInclude Include="headers\SphereRenderer.h" />
+    <ClInclude Include="headers\TexturedGroundGameComponent.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Delegates.cpp" />

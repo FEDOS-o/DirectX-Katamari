@@ -1,14 +1,21 @@
 #pragma once
-#include "Game.h"
-#include "Core.h"
-#include "Lighting.h"
+#include "GameComponent.h"
+#include "Camera.h"
+#include <SimpleMath.h>
 #include <vector>
-#include <cmath>
+#include <wincodec.h>
+#include <comdef.h>
 
-using namespace DirectX;
+using namespace DirectX::SimpleMath;
 
-class SphereRenderer {
+class TexturedGroundGameComponent : public GameComponent {
 private:
+    struct Vertex {
+        Vector3 position;
+        Vector2 texCoord;
+        Vector3 normal;
+    };
+
     ID3D11Buffer* vertexBuffer;
     ID3D11Buffer* indexBuffer;
     ID3D11InputLayout* inputLayout;
@@ -19,52 +26,142 @@ private:
     ID3D11Buffer* materialBuffer;
     ID3D11Buffer* lightBuffer;
     ID3D11SamplerState* samplerState;
+    ID3D11ShaderResourceView* textureView;
+
     UINT indexCount;
     bool initialized;
+    bool textureLoaded;
+
+    float size;
+    int segments;
+    std::string texturePath;
+
+    void LoadTexture(Game* game, const std::string& path) {
+        if (!game || !game->Device) return;
+        if (textureLoaded) return;
+
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+        Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory;
+        hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wicFactory));
+
+        if (SUCCEEDED(hr)) {
+            Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
+            std::wstring wpath(path.begin(), path.end());
+            hr = wicFactory->CreateDecoderFromFilename(wpath.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &decoder);
+
+            if (SUCCEEDED(hr)) {
+                Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
+                hr = decoder->GetFrame(0, &frame);
+
+                if (SUCCEEDED(hr)) {
+                    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
+                    hr = wicFactory->CreateFormatConverter(&converter);
+
+                    if (SUCCEEDED(hr)) {
+                        hr = converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0f, WICBitmapPaletteTypeCustom);
+
+                        if (SUCCEEDED(hr)) {
+                            UINT width, height;
+                            converter->GetSize(&width, &height);
+
+                            std::vector<BYTE> pixels(width * height * 4);
+                            hr = converter->CopyPixels(nullptr, width * 4, (UINT)pixels.size(), pixels.data());
+
+                            if (SUCCEEDED(hr)) {
+                                D3D11_TEXTURE2D_DESC texDesc = {};
+                                texDesc.Width = width;
+                                texDesc.Height = height;
+                                texDesc.MipLevels = 1;
+                                texDesc.ArraySize = 1;
+                                texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+                                texDesc.SampleDesc.Count = 1;
+                                texDesc.SampleDesc.Quality = 0;
+                                texDesc.Usage = D3D11_USAGE_DEFAULT;
+                                texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+                                texDesc.CPUAccessFlags = 0;
+                                texDesc.MiscFlags = 0;
+
+                                D3D11_SUBRESOURCE_DATA initData = {};
+                                initData.pSysMem = pixels.data();
+                                initData.SysMemPitch = width * 4;
+
+                                ID3D11Texture2D* tex = nullptr;
+                                hr = game->Device->CreateTexture2D(&texDesc, &initData, &tex);
+
+                                if (SUCCEEDED(hr) && tex) {
+                                    hr = game->Device->CreateShaderResourceView(tex, nullptr, &textureView);
+                                    tex->Release();
+
+                                    if (SUCCEEDED(hr) && textureView) {
+                                        textureLoaded = true;
+                                        std::cout << "[Ground] Texture loaded: " << path << std::endl;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        CoUninitialize();
+    }
 
 public:
-    SphereRenderer() : vertexBuffer(nullptr), indexBuffer(nullptr),
-        inputLayout(nullptr), vertexShader(nullptr), pixelShader(nullptr),
-        vsConstantBuffer(nullptr), psConstantBuffer(nullptr),
-        materialBuffer(nullptr), lightBuffer(nullptr),
-        samplerState(nullptr), indexCount(0), initialized(false) {
+    TexturedGroundGameComponent(Game* game, float size = 100.0f, int segments = 100,
+        const std::string& textureFile = "models/wood.jpg")
+        : GameComponent(game)
+        , size(size)
+        , segments(segments)
+        , texturePath(textureFile)
+        , vertexBuffer(nullptr)
+        , indexBuffer(nullptr)
+        , inputLayout(nullptr)
+        , vertexShader(nullptr)
+        , pixelShader(nullptr)
+        , vsConstantBuffer(nullptr)
+        , psConstantBuffer(nullptr)
+        , materialBuffer(nullptr)
+        , lightBuffer(nullptr)
+        , samplerState(nullptr)
+        , textureView(nullptr)
+        , indexCount(0)
+        , initialized(false)
+        , textureLoaded(false) {
     }
 
-    ~SphereRenderer() { DestroyResources(); }
+    ~TexturedGroundGameComponent() {
+        DestroyResources();
+    }
 
-    void Initialize(Game* game, const Vector4& baseColor, int segments = 32) {
+    void Initialize() override {
         if (initialized) return;
 
-        CreateSphere(game, segments, baseColor);
-        CreateShaders(game);
-        CreateBuffers(game);
+        CreateGround();
+        CreateShaders();
+        CreateBuffers();
+        LoadTexture(game, texturePath);
+
         initialized = true;
+        std::cout << "[Ground] Initialized! Size: " << size << ", Segments: " << segments << std::endl;
     }
 
-    void UpdateLight(Game* game, const DirectionalLight& light) {
-        if (!lightBuffer || !game || !game->Context) return;
-
-        DirectionalLightBuffer lightBufferData;
-        lightBufferData.ambient = light.ambient;
-        lightBufferData.diffuse = light.diffuse;
-        lightBufferData.specular = light.specular;
-        lightBufferData.direction = light.direction;
-        lightBufferData.padding = 0;
-
-        game->Context->UpdateSubresource(lightBuffer, 0, nullptr, &lightBufferData, 0, 0);
+    void Update(float deltaTime) override {
+        // Обновление света
+        UpdateLight(game, game->SunLight);
     }
 
-    void Draw(Game* game, const Matrix& world, const Vector4& color,
-        const Matrix& view, const Matrix& projection,
-        ID3D11ShaderResourceView* texture = nullptr,
-        const Material* material = nullptr) {
+    void Draw() override {
+        if (!initialized || !game || !game->Context || !game->Camera) return;
+        if (!vertexBuffer || !indexBuffer) return;
 
-        if (!initialized || !game || !game->Context) return;
-
+        // Обновляем VS константный буфер
         VSConstantBuffer vsCB;
+        Matrix world = Matrix::Identity;
         vsCB.world = world.Transpose();
-        vsCB.view = view.Transpose();
-        vsCB.projection = projection.Transpose();
+        vsCB.view = game->Camera->GetViewMatrix().Transpose();
+        vsCB.projection = game->Camera->GetProjectionMatrix().Transpose();
 
         Matrix worldInv = world;
         worldInv.Invert();
@@ -72,26 +169,26 @@ public:
 
         game->Context->UpdateSubresource(vsConstantBuffer, 0, nullptr, &vsCB, 0, 0);
 
+        // Обновляем PS константный буфер
         PSConstantBuffer psCB;
         Vector3 camPos = game->Camera->GetPosition();
         psCB.cameraPosition = Vector4(camPos.x, camPos.y, camPos.z, 1.0f);
-        psCB.objectColor = color;
-        psCB.useTexture = (texture != nullptr) ? 1 : 0;
-        psCB.hasMaterial = (material != nullptr) ? 1 : 0;
+        psCB.objectColor = Vector4(1, 1, 1, 1);
+        psCB.useTexture = textureLoaded ? 1 : 0;
+        psCB.hasMaterial = 1;
 
         game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, &psCB, 0, 0);
 
-        Material defaultMaterial(color, 32.0f);
-        const Material& mat = material ? *material : defaultMaterial;
-
+        // Материал для пола (дерево)
         MaterialBuffer matBuffer;
-        matBuffer.ambient = mat.ambient;
-        matBuffer.diffuse = mat.diffuse;
-        matBuffer.specular = mat.specular;
-        matBuffer.shininess = mat.shininess;
+        matBuffer.ambient = Vector4(0.3f, 0.3f, 0.3f, 1.0f);
+        matBuffer.diffuse = Vector4(0.7f, 0.6f, 0.4f, 1.0f);
+        matBuffer.specular = Vector4(0.2f, 0.2f, 0.2f, 1.0f);
+        matBuffer.shininess = 16.0f;
 
         game->Context->UpdateSubresource(materialBuffer, 0, nullptr, &matBuffer, 0, 0);
 
+        // Устанавливаем буферы
         UINT stride = sizeof(Vertex);
         UINT offset = 0;
         game->Context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
@@ -108,14 +205,14 @@ public:
         game->Context->PSSetConstantBuffers(2, 1, &lightBuffer);
         game->Context->PSSetSamplers(0, 1, &samplerState);
 
-        if (texture) {
-            game->Context->PSSetShaderResources(0, 1, &texture);
+        if (textureLoaded && textureView) {
+            game->Context->PSSetShaderResources(0, 1, &textureView);
         }
 
         game->Context->DrawIndexed(indexCount, 0, 0);
     }
 
-    void DestroyResources() {
+    void DestroyResources() override {
         if (vertexBuffer) { vertexBuffer->Release(); vertexBuffer = nullptr; }
         if (indexBuffer) { indexBuffer->Release(); indexBuffer = nullptr; }
         if (inputLayout) { inputLayout->Release(); inputLayout = nullptr; }
@@ -126,53 +223,60 @@ public:
         if (materialBuffer) { materialBuffer->Release(); materialBuffer = nullptr; }
         if (lightBuffer) { lightBuffer->Release(); lightBuffer = nullptr; }
         if (samplerState) { samplerState->Release(); samplerState = nullptr; }
+        if (textureView) { textureView->Release(); textureView = nullptr; }
         initialized = false;
+        textureLoaded = false;
     }
 
 private:
-    void CreateSphere(Game* game, int segments, const Vector4& baseColor) {
+    void UpdateLight(Game* game, const DirectionalLight& light) {
+        if (!lightBuffer || !game || !game->Context) return;
+
+        DirectionalLightBuffer lightBufferData;
+        lightBufferData.ambient = light.ambient;
+        lightBufferData.diffuse = light.diffuse;
+        lightBufferData.specular = light.specular;
+        lightBufferData.direction = light.direction;
+        lightBufferData.padding = 0;
+
+        game->Context->UpdateSubresource(lightBuffer, 0, nullptr, &lightBufferData, 0, 0);
+    }
+
+    void CreateGround() {
         std::vector<Vertex> vertices;
         std::vector<UINT> indices;
 
-        for (int lat = 0; lat <= segments; lat++) {
-            float theta = lat * XM_PI / segments;
-            float sinTheta = sin(theta);
-            float cosTheta = cos(theta);
+        float halfSize = size / 2.0f;
+        float step = size / segments;
 
-            for (int lon = 0; lon <= segments; lon++) {
-                float phi = lon * 2 * XM_PI / segments;
-                float sinPhi = sin(phi);
-                float cosPhi = cos(phi);
+        for (int i = 0; i <= segments; i++) {
+            float z = -halfSize + i * step;
+            float v = (float)i / segments;
 
-                float x = cosPhi * sinTheta;
-                float y = cosTheta;
-                float z = sinPhi * sinTheta;
-
-                float u = (float)lon / segments;
-                float v = (float)lat / segments;
+            for (int j = 0; j <= segments; j++) {
+                float x = -halfSize + j * step;
+                float u = (float)j / segments;
 
                 Vertex vert;
-                vert.position = Vector3(x, y, z);
-                vert.normal = Vector3(x, y, z);
-                vert.normal.Normalize();
-                vert.color = baseColor;
+                vert.position = Vector3(x, 0.0f, z);
                 vert.texCoord = Vector2(u, v);
+                vert.normal = Vector3(0, 1, 0); // Нормаль вверх
                 vertices.push_back(vert);
             }
         }
 
-        for (int lat = 0; lat < segments; lat++) {
-            for (int lon = 0; lon < segments; lon++) {
-                int first = lat * (segments + 1) + lon;
+        for (int i = 0; i < segments; i++) {
+            for (int j = 0; j < segments; j++) {
+                int first = i * (segments + 1) + j;
                 int second = first + segments + 1;
 
                 indices.push_back(first);
-                indices.push_back(first + 1);
                 indices.push_back(second);
+                indices.push_back(first + 1);
 
                 indices.push_back(second);
-                indices.push_back(first + 1);
                 indices.push_back(second + 1);
+                indices.push_back(first + 1);
             }
         }
 
@@ -195,7 +299,7 @@ private:
         game->Device->CreateBuffer(&indexDesc, &indexData, &indexBuffer);
     }
 
-    void CreateShaders(Game* game) {
+    void CreateShaders() {
         const char* vsCode = R"(
             cbuffer VSConstantBuffer : register(b0) {
                 float4x4 world;
@@ -206,14 +310,12 @@ private:
 
             struct VSInput {
                 float3 position : POSITION;
-                float4 color : COLOR;
                 float2 texCoord : TEXCOORD;
                 float3 normal : NORMAL;
             };
 
             struct VSOutput {
                 float4 position : SV_POSITION;
-                float4 color : COLOR;
                 float2 texCoord : TEXCOORD0;
                 float3 worldNormal : TEXCOORD1;
                 float3 worldPosition : TEXCOORD2;
@@ -230,7 +332,6 @@ private:
                 output.worldNormal = mul(float4(input.normal, 0.0f), worldInvTranspose).xyz;
                 output.worldNormal = normalize(output.worldNormal);
                 
-                output.color = input.color;
                 output.texCoord = input.texCoord;
                 
                 return output;
@@ -279,7 +380,6 @@ private:
             
             struct VSOutput {
                 float4 position : SV_POSITION;
-                float4 color : COLOR;
                 float2 texCoord : TEXCOORD0;
                 float3 worldNormal : TEXCOORD1;
                 float3 worldPosition : TEXCOORD2;
@@ -302,10 +402,8 @@ private:
                 if (useTexture != 0) {
                     texColor = objTexture.Sample(objSampler, input.texCoord);
                     result *= texColor.rgb;
-                } else if (hasMaterial != 0) {
-                    result *= materialDiffuse.rgb;
                 } else {
-                    result *= input.color.rgb;
+                    result *= materialDiffuse.rgb;
                 }
                 
                 return float4(result, 1.0f);
@@ -328,19 +426,18 @@ private:
 
         D3D11_INPUT_ELEMENT_DESC elements[] = {
             {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
             {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
             {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
         };
 
-        game->Device->CreateInputLayout(elements, 4, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
+        game->Device->CreateInputLayout(elements, 3, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
 
         vsBlob->Release();
         psBlob->Release();
         if (error) error->Release();
     }
 
-    void CreateBuffers(Game* game) {
+    void CreateBuffers() {
         D3D11_BUFFER_DESC desc = {};
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;

@@ -3,6 +3,7 @@
 #include "InfiniteGridGameComponent.h"
 #include "PropGameComponent.h"
 #include "KatamariBallGameComponent.h"
+#include "TexturedGroundGameComponent.h"
 #include <iostream>
 #include <random>
 #include <cmath>
@@ -35,8 +36,18 @@ int main() {
     HINSTANCE hInstance = GetModuleHandle(nullptr);
     Game game(L"Katamari", hInstance, 800, 800);
 
-    InfiniteGridGameComponent* grid = new InfiniteGridGameComponent(&game);
-    game.components.push_back(grid);
+    game.SunLight.direction = Vector3(0.5f, -1.0f, 0.3f);
+    game.SunLight.direction.Normalize();
+    game.SunLight.ambient = Vector4(1.5f, 1.5f, 1.5f, 1.0f);
+    game.SunLight.diffuse = Vector4(2.0f, 1.9f, 1.7f, 1.0f);
+    game.SunLight.specular = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+
+
+    TexturedGroundGameComponent* ground = new TexturedGroundGameComponent(&game, 100.0f, 100, "models/wood.jpg");
+    game.components.push_back(ground);
+
+   /* InfiniteGridGameComponent* grid = new InfiniteGridGameComponent(&game);
+    game.components.push_back(grid);*/
 
     OrbitalCameraGameComponent* camera = new OrbitalCameraGameComponent(&game, Vector3(0, 3, 0), 12.0f);
     game.OrbitalCamera = camera;

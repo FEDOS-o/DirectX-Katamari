@@ -14,6 +14,7 @@
 #include "DisplayWin32.h"
 #include "GameComponent.h"
 #include "InputDevice.h"
+#include "Lighting.h"
 
 
 #pragma comment(lib, "d3d11.lib")
@@ -64,6 +65,10 @@ public:
     InputDevice* Input;
     DisplayWin32* Display;
     std::vector<GameComponent*> components;
+
+    DirectionalLight SunLight;
+
+    void UpdateLight(float deltaTime);
 
 public:
     Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG screenHeight);
