@@ -576,43 +576,15 @@ void KatamariBallGameComponent::UpdateAttachedObjects(float deltaTime) {
             Vector3 worldDir = Vector3::Transform(localDir, ballRotation);
             worldDir.Normalize();
 
-            float relativeDepth = attached.depth / radius;
-
-            float currentDepth = radius * relativeDepth;
-
+            float currentDepth = radius * attached.depth;
             float attachRadius = radius - currentDepth;
             if (attachRadius < 0.1f) attachRadius = 0.1f;
 
             Vector3 newPos = position + worldDir * attachRadius;
             attached.prop->SetPosition(newPos);
 
-            Vector3 up = worldDir;
-            Vector3 forward;
+            attached.prop->GetModel().SetRotation(ballRotation.ToEuler());
 
-            if (abs(up.y) < 0.99f) {
-                forward = Vector3(0, 1, 0).Cross(up);
-                forward.Normalize();
-            }
-            else {
-                forward = Vector3(1, 0, 0);
-            }
-
-            Vector3 right = up.Cross(forward);
-            right.Normalize();
-            forward = right.Cross(up);
-            forward.Normalize();
-
-            Matrix rotMatrix;
-            rotMatrix._11 = right.x; rotMatrix._12 = up.x; rotMatrix._13 = forward.x; rotMatrix._14 = 0;
-            rotMatrix._21 = right.y; rotMatrix._22 = up.y; rotMatrix._23 = forward.y; rotMatrix._24 = 0;
-            rotMatrix._31 = right.z; rotMatrix._32 = up.z; rotMatrix._33 = forward.z; rotMatrix._34 = 0;
-            rotMatrix._41 = 0;       rotMatrix._42 = 0;    rotMatrix._43 = 0;         rotMatrix._44 = 1;
-
-            Quaternion propRotation = Quaternion::CreateFromRotationMatrix(rotMatrix);
-
-            propRotation = ballRotation * propRotation;
-
-            attached.prop->GetModel().SetRotation(propRotation.ToEuler());
             attached.attachmentTime += deltaTime;
         }
     }
