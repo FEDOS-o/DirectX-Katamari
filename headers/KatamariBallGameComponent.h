@@ -58,6 +58,10 @@ private:
     bool textureLoaded;
     std::string texturePath;
 
+    // Для перемещения последнего прикрепленного объекта
+    float attachedMoveAngleH;
+    float attachedMoveAngleV;
+
 public:
     std::vector<GameComponent*> props;
 
@@ -73,6 +77,7 @@ public:
     void DestroyResources() override;
 
     void ProcessInput(float deltaTime);
+    void ProcessAttachedObjectInput(float deltaTime);
     void CheckCollisions(std::vector<GameComponent*>& props);
     bool AttachProp(PropGameComponent* prop);
     void UpdateAttachedObjects(float deltaTime);

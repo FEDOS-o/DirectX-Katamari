@@ -34,6 +34,8 @@ KatamariBallGameComponent::KatamariBallGameComponent(Game* game, OrbitalCameraGa
     , ballTexture(nullptr)
     , textureLoaded(false)
     , texturePath(textureFile)
+    , attachedMoveAngleH(0)
+    , attachedMoveAngleV(0)
 {
 }
 
@@ -379,8 +381,59 @@ void KatamariBallGameComponent::DrawDebugCollider() {
     game->Context->DrawIndexed((UINT)indices.size(), 0, 0);
 }
 
+void KatamariBallGameComponent::ProcessAttachedObjectInput(float deltaTime) {
+    if (!game || !game->Input) return;
+    if (attachedObjects.empty()) return;
+    
+    bool moving = false;
+    
+    if (game->Input->IsKeyDown(Keys::Left)) {
+        attachedMoveAngleH -= 2.0f * deltaTime;
+        moving = true;
+    }
+    if (game->Input->IsKeyDown(Keys::Right)) {
+        attachedMoveAngleH += 2.0f * deltaTime;
+        moving = true;
+    }
+    if (game->Input->IsKeyDown(Keys::Up)) {
+        attachedMoveAngleV -= 2.0f * deltaTime;
+        moving = true;
+    }
+    if (game->Input->IsKeyDown(Keys::Down)) {
+        attachedMoveAngleV += 2.0f * deltaTime;
+        moving = true;
+    }
+    
+    if (moving) {
+
+        if (attachedMoveAngleV > 2 * 3.14159f) attachedMoveAngleV -= 2 * 3.14159f;
+        if (attachedMoveAngleV < 2 * -3.14159f) attachedMoveAngleV += 2 * 3.14159f;
+        
+        while (attachedMoveAngleH > XM_2PI) attachedMoveAngleH -= XM_2PI;
+        while (attachedMoveAngleH < 0) attachedMoveAngleH += XM_2PI;
+        
+        Vector3 newLocalDir;
+        newLocalDir.x = cos(attachedMoveAngleV) * sin(attachedMoveAngleH);
+        newLocalDir.y = sin(attachedMoveAngleV);
+        newLocalDir.z = cos(attachedMoveAngleV) * cos(attachedMoveAngleH);
+        newLocalDir.Normalize();
+        
+        int lastIndex = (int)attachedObjects.size() - 1;
+        attachedObjects[lastIndex].relativePosition = newLocalDir;
+        
+        static float lastPrint = 0;
+        lastPrint += deltaTime;
+        if (lastPrint > 0.5f) {
+            std::cout << "[Ball] Moving attached object to H: " << attachedMoveAngleH 
+                      << ", V: " << attachedMoveAngleV << std::endl;
+            lastPrint = 0;
+        }
+    }
+}
+
 void KatamariBallGameComponent::Update(float deltaTime) {
     ProcessInput(deltaTime);
+    ProcessAttachedObjectInput(deltaTime);
 
     position += velocity * deltaTime;
 
@@ -540,6 +593,10 @@ bool KatamariBallGameComponent::AttachProp(PropGameComponent* prop) {
     if (colorFactor > 2.0f) colorFactor = 2.0f;
     ballColor = Vector4(0.2f * colorFactor, 0.7f, 0.2f, 1.0f);
 
+    // Сбрасываем углы перемещения для нового объекта
+    attachedMoveAngleH = 0;
+    attachedMoveAngleV = 0;
+
     std::cout << "[Ball] Attached! Total: " << attachedObjects.size()
         << ", Radius: " << radius << " -> " << targetRadius
         << ", RelativeDepth: " << relativeDepth << std::endl;
@@ -583,8 +640,9 @@ void KatamariBallGameComponent::UpdateAttachedObjects(float deltaTime) {
             Vector3 newPos = position + worldDir * attachRadius;
             attached.prop->SetPosition(newPos);
 
+            // Вращение пропа полностью повторяет вращение шара
             attached.prop->GetModel().SetRotation(ballRotation.ToEuler());
-
+            
             attached.attachmentTime += deltaTime;
         }
     }
