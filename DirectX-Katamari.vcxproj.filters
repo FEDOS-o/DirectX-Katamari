@@ -51,9 +51,6 @@
     <ClInclude Include="headers\SphereRenderer.h">
       <Filter>Header Files\Render</Filter>
     </ClInclude>
-    <ClInclude Include="headers\OrbitalCameraGameComponent.h">
-      <Filter>Header Files\GameComponents</Filter>
-    </ClInclude>
     <ClInclude Include="headers\Rect.h">
       <Filter>Header Files\Primitives</Filter>
     </ClInclude>
@@ -63,19 +60,34 @@
     <ClInclude Include="headers\Camera.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
-    <ClInclude Include="headers\FirstPersonCameraGameComponent.h">
+    <ClInclude Include="headers\FirstPersonCamera.h">
       <Filter>Header Files\GameComponents</Filter>
     </ClInclude>
-    <ClInclude Include="headers\InfiniteGridGameComponent.h">
+    <ClInclude Include="headers\TexturedGround.h">
       <Filter>Header Files\GameComponents</Filter>
     </ClInclude>
     <ClInclude Include="headers\Model3D.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
-    <ClInclude Include="headers\PropGameComponent.h">
+    <ClInclude Include="headers\Prop.h">
       <Filter>Header Files\GameComponents</Filter>
     </ClInclude>
-    <ClInclude Include="headers\KatamariBallGameComponent.h">
+    <ClInclude Include="headers\KatamariBall.h">
+      <Filter>Header Files\GameComponents</Filter>
+    </ClInclude>
+    <ClInclude Include="headers\Lighting.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="headers\ShaderRenderer.h">
+      <Filter>Header Files\Render</Filter>
+    </ClInclude>
+    <ClInclude Include="headers\TextureLoader.h">
+      <Filter>Header Files\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="headers\Skybox.h">
+      <Filter>Header Files\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="headers\OrbitalCamera.h">
       <Filter>Header Files\GameComponents</Filter>
     </ClInclude>
   </ItemGroup>
@@ -95,10 +107,10 @@
     <ClCompile Include="src\Game.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\KatamariBallGameComponent.cpp">
+    <ClCompile Include="src\KatamariBall.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\PropGameComponent.cpp">
+    <ClCompile Include="src\Prop.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

@@ -2,87 +2,57 @@
 #include "Camera.h"
 #include "InputDevice.h"
 #include <SimpleMath.h>
+#include <algorithm>
 
 using namespace DirectX::SimpleMath;
 
-class FirstPersonCameraGameComponent : public Camera {
+#pragma warning(push)
+#pragma warning(disable: 4100) // unreferenced formal parameter
+
+class FirstPersonCamera : public Camera {
 private:
     Vector3 position;
     Vector3 forward;
     Vector3 right;
     Vector3 up;
     Vector3 worldUp;
-
     float yaw;
     float pitch;
-
-    float movementSpeed;
-    float mouseSensitivity;
-
-    float minPitch;
-    float maxPitch;
-
+    float movementSpeed = 10.0f;
+    float mouseSensitivity = 0.005f;
+    float minPitch = -XM_PIDIV2 + 0.01f;
+    float maxPitch = XM_PIDIV2 - 0.01f;
     DelegateHandle mouseMoveHandle;
-
-    bool wPressed, sPressed, aPressed, dPressed;
-    bool qPressed, ePressed;
-    bool shiftPressed;
-
-    bool pPressed;
-    bool homePressed;
+    bool wPressed = false, sPressed = false, aPressed = false, dPressed = false;
+    bool qPressed = false, ePressed = false, shiftPressed = false;
+    bool pPressed = false, homePressed = false;
 
 public:
-    FirstPersonCameraGameComponent(Game* game,
-        const Vector3& startPosition = Vector3(0, 5, 10),
-        float startYaw = -XM_PIDIV4,
-        float startPitch = 0.0f)
-        : Camera(game)
-        , position(startPosition)
-        , yaw(startYaw)
-        , pitch(startPitch)
-        , movementSpeed(10.0f)
-        , mouseSensitivity(0.005f)
-        , minPitch(-XM_PIDIV2 + 0.01f)
-        , maxPitch(XM_PIDIV2 - 0.01f)
-        , wPressed(false)
-        , sPressed(false)
-        , aPressed(false)
-        , dPressed(false)
-        , qPressed(false)
-        , ePressed(false)
-        , shiftPressed(false)
-        , pPressed(false)
-        , homePressed(false)
-    {
+    FirstPersonCamera(Game* game, const Vector3& startPosition = Vector3(0, 5, 10),
+        float startYaw = -XM_PIDIV4, float startPitch = 0.0f)
+        : Camera(game), position(startPosition), yaw(startYaw), pitch(startPitch) {
         worldUp = Vector3(0, 1, 0);
         UpdateViewMatrix();
     }
 
     void Initialize() override {
-        if (!game || !game->Input) {
-            return;
-        }
+        if (!game || !game->Input) return;
 
         mouseMoveHandle = game->Input->MouseMove.AddLambda([this](const InputDevice::MouseMoveEventArgs& args) {
             yaw -= args.Offset.x * mouseSensitivity;
             pitch -= args.Offset.y * mouseSensitivity;
-
-            if (pitch < minPitch) pitch = minPitch;
-            if (pitch > maxPitch) pitch = maxPitch;
+            pitch = std::clamp(pitch, minPitch, maxPitch);
             UpdateViewMatrix();
             });
     }
 
     void Update(float deltaTime) override {
-        if (!game || !game->Input) {
-            return;
-        }
+        if (!game || !game->Input) return;
 
         int wheel = game->Input->MouseWheelDelta;
         if (wheel != 0) {
             movementSpeed += wheel * deltaTime * 5.0f;
-            if (movementSpeed < 2.0f) movementSpeed = 2.0f;
-            if (movementSpeed > 50.0f) movementSpeed = 50.0f;
+            movementSpeed = std::clamp(movementSpeed, 2.0f, 50.0f);
         }
         game->Input->MouseWheelDelta = 0;
 
@@ -129,12 +99,9 @@ public:
 
     void ProcessKeyboard(float deltaTime) {
         float currentSpeed = movementSpeed * deltaTime;
-        if (shiftPressed) {
-            currentSpeed *= 2.5f;
-        }
+        if (shiftPressed) currentSpeed *= 2.5f;
 
         Vector3 movement = Vector3::Zero;
-
         if (wPressed) movement += forward;
         if (sPressed) movement -= forward;
         if (dPressed) movement += right;
@@ -156,32 +123,25 @@ public:
 
         right = forward.Cross(worldUp);
         right.Normalize();
-
         up = right.Cross(forward);
         up.Normalize();
 
         viewMatrix = Matrix::CreateLookAt(position, position + forward, up);
-
         UpdateProjection();
     }
 
     void UpdateProjection() override {
         float aspect = 800.0f / 800.0f;
-
         if (isPerspective) {
-            projectionMatrix = Matrix::CreatePerspectiveFieldOfView(
-                XM_PIDIV4, aspect, 0.1f, 1000.0f);
+            projectionMatrix = Matrix::CreatePerspectiveFieldOfView(XM_PIDIV4, aspect, 0.1f, 1000.0f);
         }
         else {
             float orthoSize = 20.0f;
-            projectionMatrix = Matrix::CreateOrthographic(
-                orthoSize * aspect, orthoSize, 0.1f, 1000.0f);
+            projectionMatrix = Matrix::CreateOrthographic(orthoSize * aspect, orthoSize, 0.1f, 1000.0f);
         }
     }
 
-    void UpdateCamera() override {
-        UpdateViewMatrix();
-    }
+    void UpdateCamera() override { UpdateViewMatrix(); }
 
     void ResetCamera() override {
         position = Vector3(0, 5, 10);
@@ -203,21 +163,11 @@ public:
 
     void SetRotation(float newYaw, float newPitch) {
         yaw = newYaw;
-        pitch = newPitch;
-        if (pitch < minPitch) pitch = minPitch;
-        if (pitch > maxPitch) pitch = maxPitch;
+        pitch = std::clamp(newPitch, minPitch, maxPitch);
         UpdateViewMatrix();
     }
 
-    void SetMovementSpeed(float speed) {
-        movementSpeed = speed;
-    }
-
-    void SetMouseSensitivity(float sensitivity) {
-        mouseSensitivity = sensitivity;
-    }
-
-    ~FirstPersonCameraGameComponent() {
-        DestroyResources();
-    }
+    ~FirstPersonCamera() { DestroyResources(); }
 };
+
+#pragma warning(pop)

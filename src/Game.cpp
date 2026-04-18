@@ -1,6 +1,6 @@
 #include "Game.h"
-#include "OrbitalCameraGameComponent.h"
-#include "FirstPersonCameraGameComponent.h"
+#include "OrbitalCamera.h"
+#include "FirstPersonCamera.h"
 #include "DisplayWin32.h"
 #include "InputDevice.h"
 
@@ -12,8 +12,8 @@ Game::Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG 
     Display(nullptr),
     Input(nullptr),
     isUsingOrbitalCamera(true),
-    FirstPersonCamera(nullptr),
-    OrbitalCamera(nullptr),
+    firstPersonCamera(nullptr),
+    orbitalCamera(nullptr),
     DepthStencilBuffer(nullptr),
     DepthStencilView(nullptr),
     DepthStencilState(nullptr)
@@ -61,9 +61,9 @@ Game::Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG 
 
     Device->QueryInterface(__uuidof(ID3D11Debug), (void**)&DebugAnnotation);
 
-    OrbitalCamera = new OrbitalCameraGameComponent(this, Vector3(0, 0, 0), 15.0f);
-    FirstPersonCamera = new FirstPersonCameraGameComponent(this, Vector3(0, 5, 15));
-    Camera = OrbitalCamera;
+    orbitalCamera = new OrbitalCamera(this, Vector3(0, 0, 0), 15.0f);
+    firstPersonCamera = new FirstPersonCamera(this, Vector3(0, 5, 15));
+    Camera = orbitalCamera;
 
 
     SunLight.direction = Vector3(0.5f, -1.0f, 0.3f);
@@ -174,8 +174,8 @@ HRESULT Game::Initialize() {
         return res;
     }
 
-    OrbitalCamera->Initialize();
-    FirstPersonCamera->Initialize();
+    orbitalCamera->Initialize();
+    firstPersonCamera->Initialize();
 
     for (auto* component : components) {
         component->Initialize();
@@ -309,15 +309,15 @@ void Game::Exit() {
 }
 
 void Game::DestroyResources() {
-    if (OrbitalCamera) {
-        OrbitalCamera->DestroyResources();
-        delete OrbitalCamera;
-        OrbitalCamera = nullptr;
+    if (orbitalCamera) {
+        orbitalCamera->DestroyResources();
+        delete orbitalCamera;
+        orbitalCamera = nullptr;
     }
-    if (FirstPersonCamera) {
-        FirstPersonCamera->DestroyResources();
-        delete FirstPersonCamera;
-        FirstPersonCamera = nullptr;
+    if (firstPersonCamera) {
+        firstPersonCamera->DestroyResources();
+        delete firstPersonCamera;
+        firstPersonCamera = nullptr;
     }
 
     for (auto* component : components) {
@@ -403,16 +403,16 @@ void Game::Run() {
 void Game::SwitchCamera() {
     isUsingOrbitalCamera = !isUsingOrbitalCamera;
     if (isUsingOrbitalCamera) {
-        Vector3 fpsPos = FirstPersonCamera->GetPosition();
-        Vector3 fpsForward = FirstPersonCamera->GetForward();
-        OrbitalCamera->SetTarget(fpsPos);
-        OrbitalCamera->ResetCamera();
-        Camera = OrbitalCamera;
+        Vector3 fpsPos = firstPersonCamera->GetPosition();
+        Vector3 fpsForward = firstPersonCamera->GetForward();
+        orbitalCamera->SetTarget(fpsPos);
+        orbitalCamera->ResetCamera();
+        Camera = orbitalCamera;
     } else {
         Vector3 orbitalPos = Vector3(0, 5, 15); 
-        FirstPersonCamera->SetPosition(orbitalPos);
-        FirstPersonCamera->ResetCamera();
-        Camera = FirstPersonCamera;
+        firstPersonCamera->SetPosition(orbitalPos);
+        firstPersonCamera->ResetCamera();
+        Camera = firstPersonCamera;
     }
 }
 

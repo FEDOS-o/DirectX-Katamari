@@ -7,57 +7,52 @@
 using namespace DirectX::SimpleMath;
 using namespace DirectX;
 
-class OrbitalCameraGameComponent : public Camera {
+#pragma warning(push)
+#pragma warning(disable: 4100) // unreferenced formal parameter
+
+class OrbitalCamera : public Camera {
 private:
     Vector3 target;
     float distance;
     float yaw;
     float pitch;
-    float minDistance;
-    float maxDistance;
-    float minPitch;
-    float maxPitch;
-    float rotationSpeed;
-    float zoomSpeed;
+    float minDistance = 3.0f;
+    float maxDistance = 80.0f;
+    float minPitch = -1.4f;
+    float maxPitch = 1.4f;
+    float rotationSpeed = 0.005f;
+    float zoomSpeed = 2.0f;
     DelegateHandle mouseHandle;
-    bool pPressed;
-    bool homePressed;
+    bool pPressed = false;
+    bool homePressed = false;
 
 public:
-    OrbitalCameraGameComponent(Game* game, const Vector3& target = Vector3(0, 0, 0),
+    OrbitalCamera(Game* game, const Vector3& target = Vector3(0, 0, 0),
         float distance = 15.0f, float yaw = 0.0f, float pitch = 0.5f) :
-        Camera(game), target(target), distance(distance), yaw(yaw), pitch(pitch),
-        minDistance(3.0f), maxDistance(80.0f), minPitch(-1.4f), maxPitch(1.4f),
-        rotationSpeed(0.005f), zoomSpeed(2.0f),
-        pPressed(false), homePressed(false) {
+        Camera(game), target(target), distance(distance), yaw(yaw), pitch(pitch) {
         UpdateCamera();
     }
 
     void Initialize() override {
-        if (!game || !game->Input) {
-            return;
-        }
+        if (!game || !game->Input) return;
+
         mouseHandle = game->Input->MouseMove.AddLambda([this](const InputDevice::MouseMoveEventArgs& args) {
             yaw -= args.Offset.x * rotationSpeed;
             pitch += args.Offset.y * rotationSpeed;
-            if (pitch < minPitch) pitch = minPitch;
-            if (pitch > maxPitch) pitch = maxPitch;
+            pitch = std::clamp(pitch, minPitch, maxPitch);
             UpdateCamera();
             });
     }
 
     void Update(float deltaTime) override {
-        if (!game || !game->Input) {
-            return;
-        }
+        if (!game || !game->Input) return;
+
         int wheel = game->Input->MouseWheelDelta;
         if (wheel != 0) {
             distance -= wheel * zoomSpeed * deltaTime;
-            if (distance < minDistance) distance = minDistance;
-            if (distance > maxDistance) distance = maxDistance;
+            distance = std::clamp(distance, minDistance, maxDistance);
             UpdateCamera();
         }
-
         game->Input->MouseWheelDelta = 0;
 
         if (game->Input->IsKeyDown(Keys::P)) {
@@ -93,11 +88,11 @@ public:
     void UpdateProjection() override {
         float aspect = 800.0f / 800.0f;
         if (isPerspective) {
-            projectionMatrix = Matrix::CreatePerspectiveFieldOfView(XM_PIDIV4, aspect, 0.5f, 100.0f);
+            projectionMatrix = Matrix::CreatePerspectiveFieldOfView(XM_PIDIV4, aspect, 0.5f, 1000.0f);
         }
         else {
             float orthoSize = 80.0f;
-            projectionMatrix = Matrix::CreateOrthographic(orthoSize * aspect, orthoSize, 0.1f, 100.0f);
+            projectionMatrix = Matrix::CreateOrthographic(orthoSize * aspect, orthoSize, 0.1f, 1000.0f);
         }
     }
 
@@ -129,7 +124,6 @@ public:
     }
 
     Vector3 GetRight() const {
-        Vector3 pos = GetPosition();
         Vector3 forward = GetForward();
         Vector3 up(0, 1, 0);
         Vector3 right = forward.Cross(up);
@@ -137,9 +131,11 @@ public:
         return right;
     }
 
-    ~OrbitalCameraGameComponent() {
+    ~OrbitalCamera() {
         if (game && game->Input) {
             game->Input->MouseMove.Remove(mouseHandle);
         }
     }
 };
+
+#pragma warning(pop)

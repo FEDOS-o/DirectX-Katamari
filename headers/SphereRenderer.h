@@ -1,202 +1,78 @@
 #pragma once
-#include "Game.h"
-#include "Core.h"
-#include "Lighting.h"
+#include "ShaderRenderer.h"
 #include <vector>
 #include <cmath>
 
-using namespace DirectX;
+namespace Render {
 
-class SphereRenderer {
-private:
-    ID3D11Buffer* vertexBuffer;
-    ID3D11Buffer* indexBuffer;
-    ID3D11InputLayout* inputLayout;
-    ID3D11VertexShader* vertexShader;
-    ID3D11PixelShader* pixelShader;
-    ID3D11Buffer* vsConstantBuffer;
-    ID3D11Buffer* psConstantBuffer;
-    ID3D11Buffer* materialBuffer;
-    ID3D11Buffer* lightBuffer;
-    ID3D11SamplerState* samplerState;
-    UINT indexCount;
-    bool initialized;
+    class SphereRenderer : public ShaderRenderer {
+    private:
+        ID3D11Buffer* vertexBuffer = nullptr;
+        ID3D11Buffer* indexBuffer = nullptr;
+        UINT indexCount = 0;
+        bool geometryInitialized = false;
 
-public:
-    SphereRenderer() : vertexBuffer(nullptr), indexBuffer(nullptr),
-        inputLayout(nullptr), vertexShader(nullptr), pixelShader(nullptr),
-        vsConstantBuffer(nullptr), psConstantBuffer(nullptr),
-        materialBuffer(nullptr), lightBuffer(nullptr),
-        samplerState(nullptr), indexCount(0), initialized(false) {
-    }
+        void CreateGeometry(Game* game, int segments, const Vector4& baseColor) {
+            std::vector<Vertex> vertices;
+            std::vector<UINT> indices;
 
-    ~SphereRenderer() { DestroyResources(); }
+            for (int lat = 0; lat <= segments; lat++) {
+                float theta = lat * XM_PI / segments;
+                float sinTheta = sin(theta);
+                float cosTheta = cos(theta);
 
-    void Initialize(Game* game, const Vector4& baseColor, int segments = 32) {
-        if (initialized) return;
+                for (int lon = 0; lon <= segments; lon++) {
+                    float phi = lon * 2 * XM_PI / segments;
+                    float sinPhi = sin(phi);
+                    float cosPhi = cos(phi);
 
-        CreateSphere(game, segments, baseColor);
-        CreateShaders(game);
-        CreateBuffers(game);
-        initialized = true;
-    }
+                    float x = cosPhi * sinTheta;
+                    float y = cosTheta;
+                    float z = sinPhi * sinTheta;
 
-    void UpdateLight(Game* game, const DirectionalLight& light) {
-        if (!lightBuffer || !game || !game->Context) return;
-
-        DirectionalLightBuffer lightBufferData;
-        lightBufferData.ambient = light.ambient;
-        lightBufferData.diffuse = light.diffuse;
-        lightBufferData.specular = light.specular;
-        lightBufferData.direction = light.direction;
-        lightBufferData.padding = 0;
-
-        game->Context->UpdateSubresource(lightBuffer, 0, nullptr, &lightBufferData, 0, 0);
-    }
-
-    void Draw(Game* game, const Matrix& world, const Vector4& color,
-        const Matrix& view, const Matrix& projection,
-        ID3D11ShaderResourceView* texture = nullptr,
-        const Material* material = nullptr) {
-
-        if (!initialized || !game || !game->Context) return;
-
-        VSConstantBuffer vsCB;
-        vsCB.world = world.Transpose();
-        vsCB.view = view.Transpose();
-        vsCB.projection = projection.Transpose();
-
-        Matrix worldInv = world;
-        worldInv.Invert();
-        vsCB.worldInvTranspose = worldInv.Transpose();
-
-        game->Context->UpdateSubresource(vsConstantBuffer, 0, nullptr, &vsCB, 0, 0);
-
-        PSConstantBuffer psCB;
-        Vector3 camPos = game->Camera->GetPosition();
-        psCB.cameraPosition = Vector4(camPos.x, camPos.y, camPos.z, 1.0f);
-        psCB.objectColor = color;
-        psCB.useTexture = (texture != nullptr) ? 1 : 0;
-        psCB.hasMaterial = (material != nullptr) ? 1 : 0;
-
-        game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, &psCB, 0, 0);
-
-        Material defaultMaterial(color, 32.0f);
-        const Material& mat = material ? *material : defaultMaterial;
-
-        MaterialBuffer matBuffer;
-        matBuffer.ambient = mat.ambient;
-        matBuffer.diffuse = mat.diffuse;
-        matBuffer.specular = mat.specular;
-        matBuffer.shininess = mat.shininess;
-
-        game->Context->UpdateSubresource(materialBuffer, 0, nullptr, &matBuffer, 0, 0);
-
-        UINT stride = sizeof(Vertex);
-        UINT offset = 0;
-        game->Context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
-        game->Context->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
-        game->Context->IASetInputLayout(inputLayout);
-        game->Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        game->Context->VSSetShader(vertexShader, nullptr, 0);
-        game->Context->VSSetConstantBuffers(0, 1, &vsConstantBuffer);
-
-        game->Context->PSSetShader(pixelShader, nullptr, 0);
-        game->Context->PSSetConstantBuffers(0, 1, &psConstantBuffer);
-        game->Context->PSSetConstantBuffers(1, 1, &materialBuffer);
-        game->Context->PSSetConstantBuffers(2, 1, &lightBuffer);
-        game->Context->PSSetSamplers(0, 1, &samplerState);
-
-        if (texture) {
-            game->Context->PSSetShaderResources(0, 1, &texture);
-        }
-
-        game->Context->DrawIndexed(indexCount, 0, 0);
-    }
-
-    void DestroyResources() {
-        if (vertexBuffer) { vertexBuffer->Release(); vertexBuffer = nullptr; }
-        if (indexBuffer) { indexBuffer->Release(); indexBuffer = nullptr; }
-        if (inputLayout) { inputLayout->Release(); inputLayout = nullptr; }
-        if (vertexShader) { vertexShader->Release(); vertexShader = nullptr; }
-        if (pixelShader) { pixelShader->Release(); pixelShader = nullptr; }
-        if (vsConstantBuffer) { vsConstantBuffer->Release(); vsConstantBuffer = nullptr; }
-        if (psConstantBuffer) { psConstantBuffer->Release(); psConstantBuffer = nullptr; }
-        if (materialBuffer) { materialBuffer->Release(); materialBuffer = nullptr; }
-        if (lightBuffer) { lightBuffer->Release(); lightBuffer = nullptr; }
-        if (samplerState) { samplerState->Release(); samplerState = nullptr; }
-        initialized = false;
-    }
-
-private:
-    void CreateSphere(Game* game, int segments, const Vector4& baseColor) {
-        std::vector<Vertex> vertices;
-        std::vector<UINT> indices;
-
-        for (int lat = 0; lat <= segments; lat++) {
-            float theta = lat * XM_PI / segments;
-            float sinTheta = sin(theta);
-            float cosTheta = cos(theta);
-
-            for (int lon = 0; lon <= segments; lon++) {
-                float phi = lon * 2 * XM_PI / segments;
-                float sinPhi = sin(phi);
-                float cosPhi = cos(phi);
-
-                float x = cosPhi * sinTheta;
-                float y = cosTheta;
-                float z = sinPhi * sinTheta;
-
-                float u = (float)lon / segments;
-                float v = (float)lat / segments;
-
-                Vertex vert;
-                vert.position = Vector3(x, y, z);
-                vert.normal = Vector3(x, y, z);
-                vert.normal.Normalize();
-                vert.color = baseColor;
-                vert.texCoord = Vector2(u, v);
-                vertices.push_back(vert);
+                    Vertex vert;
+                    vert.position = Vector3(x, y, z);
+                    vert.normal = Vector3(x, y, z);
+                    vert.normal.Normalize();
+                    vert.color = baseColor;
+                    vert.texCoord = Vector2((float)lon / segments, (float)lat / segments);
+                    vertices.push_back(vert);
+                }
             }
-        }
 
-        for (int lat = 0; lat < segments; lat++) {
-            for (int lon = 0; lon < segments; lon++) {
-                int first = lat * (segments + 1) + lon;
-                int second = first + segments + 1;
+            for (int lat = 0; lat < segments; lat++) {
+                for (int lon = 0; lon < segments; lon++) {
+                    int first = lat * (segments + 1) + lon;
+                    int second = first + segments + 1;
 
-                indices.push_back(first);
-                indices.push_back(first + 1);
-                indices.push_back(second);
-
-                indices.push_back(second);
-                indices.push_back(first + 1);
-                indices.push_back(second + 1);
+                    indices.push_back(first);
+                    indices.push_back(first + 1);
+                    indices.push_back(second);
+                    indices.push_back(second);
+                    indices.push_back(first + 1);
+                    indices.push_back(second + 1);
+                }
             }
+
+            indexCount = (UINT)indices.size();
+
+            D3D11_BUFFER_DESC vertexDesc = {};
+            vertexDesc.Usage = D3D11_USAGE_DEFAULT;
+            vertexDesc.ByteWidth = sizeof(Vertex) * (UINT)vertices.size();
+            vertexDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+            D3D11_SUBRESOURCE_DATA vertexData = { vertices.data() };
+            game->Device->CreateBuffer(&vertexDesc, &vertexData, &vertexBuffer);
+
+            D3D11_BUFFER_DESC indexDesc = {};
+            indexDesc.Usage = D3D11_USAGE_DEFAULT;
+            indexDesc.ByteWidth = sizeof(UINT) * indexCount;
+            indexDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+            D3D11_SUBRESOURCE_DATA indexData = { indices.data() };
+            game->Device->CreateBuffer(&indexDesc, &indexData, &indexBuffer);
         }
 
-        indexCount = (UINT)indices.size();
-
-        D3D11_BUFFER_DESC vertexDesc = {};
-        vertexDesc.Usage = D3D11_USAGE_DEFAULT;
-        vertexDesc.ByteWidth = sizeof(Vertex) * (UINT)vertices.size();
-        vertexDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-
-        D3D11_SUBRESOURCE_DATA vertexData = { vertices.data() };
-        game->Device->CreateBuffer(&vertexDesc, &vertexData, &vertexBuffer);
-
-        D3D11_BUFFER_DESC indexDesc = {};
-        indexDesc.Usage = D3D11_USAGE_DEFAULT;
-        indexDesc.ByteWidth = sizeof(UINT) * indexCount;
-        indexDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
-
-        D3D11_SUBRESOURCE_DATA indexData = { indices.data() };
-        game->Device->CreateBuffer(&indexDesc, &indexData, &indexBuffer);
-    }
-
-    void CreateShaders(Game* game) {
-        const char* vsCode = R"(
+        void CreateShaders(Game* game) {
+            const char* vsCode = R"(
             cbuffer VSConstantBuffer : register(b0) {
                 float4x4 world;
                 float4x4 view;
@@ -237,25 +113,14 @@ private:
             }
         )";
 
-        ID3DBlob* vsBlob = nullptr;
-        ID3DBlob* error = nullptr;
-
-        HRESULT hr = D3DCompile(vsCode, strlen(vsCode), nullptr, nullptr, nullptr,
-            "VSMain", "vs_5_0", D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,
-            0, &vsBlob, &error);
-
-        if (FAILED(hr)) {
-            if (error) error->Release();
-            return;
-        }
-
-        const char* psCode = R"(
+            const char* psCode = R"(
             cbuffer PSConstantBuffer : register(b0) {
                 float4 cameraPosition;
                 float4 objectColor;
                 int useTexture;
                 int hasMaterial;
-                float2 padding;
+                int useReflection;
+                float padding;
             }
             
             cbuffer MaterialBuffer : register(b1) {
@@ -275,6 +140,7 @@ private:
             }
             
             Texture2D objTexture : register(t0);
+            TextureCube skyboxTexture : register(t1);
             SamplerState objSampler : register(s0);
             
             struct VSOutput {
@@ -289,14 +155,20 @@ private:
                 float3 normal = normalize(input.worldNormal);
                 float3 lightDir = normalize(-lightDirection);
                 float3 viewDir = normalize(cameraPosition.xyz - input.worldPosition);
-                float3 reflectDir = reflect(-lightDir, normal);
+                float3 reflectDir = reflect(-viewDir, normal);
+                float3 reflectLightDir = reflect(-lightDir, normal);
                 
                 float3 ambient = lightAmbient.rgb * materialAmbient.rgb;
                 float diff = max(dot(normal, lightDir), 0.0f);
                 float3 diffuse = lightDiffuse.rgb * diff * materialDiffuse.rgb;
-                float spec = pow(max(dot(viewDir, reflectDir), 0.0f), shininess);
+                float spec = pow(max(dot(viewDir, reflectLightDir), 0.0f), shininess);
                 float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
                 float3 result = ambient + diffuse + specular;
+                
+                if (useReflection != 0) {
+                    float3 reflection = skyboxTexture.Sample(objSampler, reflectDir).rgb;
+                    result = result * 0.6f + reflection * 0.4f;
+                }
                 
                 float4 texColor = float4(1, 1, 1, 1);
                 if (useTexture != 0) {
@@ -312,59 +184,96 @@ private:
             }
         )";
 
-        ID3DBlob* psBlob = nullptr;
-        hr = D3DCompile(psCode, strlen(psCode), nullptr, nullptr, nullptr,
-            "PSMain", "ps_5_0", D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,
-            0, &psBlob, &error);
+            ID3DBlob* vsBlob = CompileShader(vsCode, "vs_5_0", "VSMain");
+            ID3DBlob* psBlob = CompileShader(psCode, "ps_5_0", "PSMain");
 
-        if (FAILED(hr)) {
-            if (error) error->Release();
+            if (!vsBlob || !psBlob) {
+                if (vsBlob) vsBlob->Release();
+                if (psBlob) psBlob->Release();
+                return;
+            }
+
+            game->Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader);
+            game->Device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader);
+
+            D3D11_INPUT_ELEMENT_DESC elements[] = {
+                {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+                {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+                {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+                {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
+            };
+
+            game->Device->CreateInputLayout(elements, 4, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
+
             vsBlob->Release();
-            return;
+            psBlob->Release();
         }
 
-        game->Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader);
-        game->Device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader);
+    public:
+        void Initialize(Game* game, const Vector4& baseColor, int segments = 32) {
+            if (geometryInitialized) return;
 
-        D3D11_INPUT_ELEMENT_DESC elements[] = {
-            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-            {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
-            {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
-            {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
-        };
+            CreateGeometry(game, segments, baseColor);
+            CreateShaders(game);
+            CreateStandardBuffers(game);
 
-        game->Device->CreateInputLayout(elements, 4, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
+            geometryInitialized = true;
+            shadersInitialized = true;
+        }
 
-        vsBlob->Release();
-        psBlob->Release();
-        if (error) error->Release();
-    }
+        void Draw(Game* game, const Matrix& world, const Vector4& color,
+            const Matrix& view, const Matrix& projection,
+            ID3D11ShaderResourceView* texture = nullptr,
+            const Material* material = nullptr,
+            bool useReflection = false) {
 
-    void CreateBuffers(Game* game) {
-        D3D11_BUFFER_DESC desc = {};
-        desc.Usage = D3D11_USAGE_DEFAULT;
-        desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            if (!geometryInitialized || !game || !game->Context) return;
 
-        desc.ByteWidth = sizeof(VSConstantBuffer);
-        game->Device->CreateBuffer(&desc, nullptr, &vsConstantBuffer);
+            UpdateLightBuffer(game, game->SunLight);
+            UpdateVSConstantBuffer(game, world, view, projection);
 
-        desc.ByteWidth = sizeof(PSConstantBuffer);
-        game->Device->CreateBuffer(&desc, nullptr, &psConstantBuffer);
+            PSConstantBuffer psCB;
+            Vector3 camPos = game->Camera->GetPosition();
+            psCB.cameraPosition = Vector4(camPos.x, camPos.y, camPos.z, 1.0f);
+            psCB.objectColor = color;
+            psCB.useTexture = (texture != nullptr) ? 1 : 0;
+            psCB.hasMaterial = (material != nullptr) ? 1 : 0;
+            psCB.useReflection = useReflection ? 1 : 0;
+            psCB.padding = 0.0f;
+            game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, &psCB, 0, 0);
 
-        desc.ByteWidth = sizeof(MaterialBuffer);
-        game->Device->CreateBuffer(&desc, nullptr, &materialBuffer);
+            Material defaultMaterial(color, 32.0f);
+            UpdateMaterialBuffer(game, material ? *material : defaultMaterial);
 
-        desc.ByteWidth = sizeof(DirectionalLightBuffer);
-        game->Device->CreateBuffer(&desc, nullptr, &lightBuffer);
+            UINT stride = sizeof(Vertex);
+            UINT offset = 0;
+            game->Context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
+            game->Context->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+            game->Context->IASetInputLayout(inputLayout);
+            game->Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        D3D11_SAMPLER_DESC samplerDesc = {};
-        samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-        samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-        samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-        samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-        samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-        samplerDesc.MinLOD = 0;
-        samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-        game->Device->CreateSamplerState(&samplerDesc, &samplerState);
-    }
-};
+            game->Context->VSSetShader(vertexShader, nullptr, 0);
+            game->Context->PSSetShader(pixelShader, nullptr, 0);
+
+            BindStandardResources(game);
+
+            if (texture) {
+                game->Context->PSSetShaderResources(0, 1, &texture);
+            }
+
+            if (useReflection && game->SkyboxTexture) {
+                game->Context->PSSetShaderResources(1, 1, &game->SkyboxTexture);
+            }
+
+            game->Context->DrawIndexed(indexCount, 0, 0);
+        }
+
+        void DestroyResources() override {
+            ShaderRenderer::DestroyResources();
+            if (vertexBuffer) { vertexBuffer->Release(); vertexBuffer = nullptr; }
+            if (indexBuffer) { indexBuffer->Release(); indexBuffer = nullptr; }
+            geometryInitialized = false;
+        }
+    };
+
+} // namespace Render

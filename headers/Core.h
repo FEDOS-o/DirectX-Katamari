@@ -18,15 +18,14 @@ struct VSConstantBuffer {
     Matrix worldInvTranspose;
 };
 
-
 struct PSConstantBuffer {
     Vector4 cameraPosition;
     Vector4 objectColor;
     int useTexture;
     int hasMaterial;
-    float padding[2];
+    int useReflection;      // <-- ÄÎÁÀÂÈÒÜ
+    float padding;          // <-- èçìåíèòü ðàçìåð padding
 };
-
 
 struct MaterialBuffer {
     Vector4 ambient;
@@ -35,7 +34,6 @@ struct MaterialBuffer {
     float shininess;
     float padding[3];
 };
-
 
 struct DirectionalLightBuffer {
     Vector4 ambient;

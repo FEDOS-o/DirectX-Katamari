@@ -23,30 +23,32 @@
     <ClInclude Include="headers\Core.h" />
     <ClInclude Include="headers\Delegates.h" />
     <ClInclude Include="headers\DisplayWin32.h" />
-    <ClInclude Include="headers\FirstPersonCameraGameComponent.h" />
+    <ClInclude Include="headers\FirstPersonCamera.h" />
     <ClInclude Include="headers\Game.h" />
     <ClInclude Include="headers\GameComponent.h" />
-    <ClInclude Include="headers\InfiniteGridGameComponent.h" />
+    <ClInclude Include="headers\TexturedGround.h" />
     <ClInclude Include="headers\InputDevice.h" />
-    <ClInclude Include="headers\KatamariBallGameComponent.h" />
+    <ClInclude Include="headers\KatamariBall.h" />
     <ClInclude Include="headers\Keys.h" />
     <ClInclude Include="headers\Lighting.h" />
     <ClInclude Include="headers\Model3D.h" />
-    <ClInclude Include="headers\OrbitalCameraGameComponent.h" />
-    <ClInclude Include="headers\PropGameComponent.h" />
+    <ClInclude Include="headers\OrbitalCamera.h" />
+    <ClInclude Include="headers\Prop.h" />
     <ClInclude Include="headers\Rect.h" />
     <ClInclude Include="headers\RectRenderer.h" />
+    <ClInclude Include="headers\ShaderRenderer.h" />
+    <ClInclude Include="headers\Skybox.h" />
     <ClInclude Include="headers\SphereRenderer.h" />
-    <ClInclude Include="headers\TexturedGroundGameComponent.h" />
+    <ClInclude Include="headers\TextureLoader.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Delegates.cpp" />
     <ClCompile Include="src\DisplayWin32.cpp" />
     <ClCompile Include="src\Game.cpp" />
     <ClCompile Include="src\InputDevice.cpp" />
-    <ClCompile Include="src\KatamariBallGameComponent.cpp" />
+    <ClCompile Include="src\KatamariBall.cpp" />
     <ClCompile Include="src\MySuper3DApp.cpp" />
-    <ClCompile Include="src\PropGameComponent.cpp" />
+    <ClCompile Include="src\Prop.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
