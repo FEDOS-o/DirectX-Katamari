@@ -10,7 +10,6 @@ using namespace DirectX;
 
 namespace Render {
 
-    // Базовый класс для всех рендереров
     class ShaderRenderer {
     protected:
         ID3D11InputLayout* inputLayout = nullptr;

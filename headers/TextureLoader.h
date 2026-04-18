@@ -128,8 +128,6 @@ namespace Core {
                                         faceData[i].resize(outFaceSize * outFaceSize * 4);
                                     }
 
-                                    // Extract 6 faces from cross layout
-                                    // +X (1,2), -X (1,0), +Y (0,1), -Y (2,1), +Z (1,1), -Z (1,3)
                                     int faceRows[] = { 1, 1, 0, 2, 1, 1 };
                                     int faceCols[] = { 2, 0, 1, 1, 1, 3 };
 

@@ -26,6 +26,11 @@
     <ClInclude Include="headers\FirstPersonCamera.h" />
     <ClInclude Include="headers\Game.h" />
     <ClInclude Include="headers\GameComponent.h" />
+    <ClInclude Include="headers\MaterialManager.h" />
+    <ClInclude Include="headers\MeshManager.h" />
+    <ClInclude Include="headers\ModelLoader.h" />
+    <ClInclude Include="headers\ModelRenderer.h" />
+    <ClInclude Include="headers\ModelTypes.h" />
     <ClInclude Include="headers\TexturedGround.h" />
     <ClInclude Include="headers\InputDevice.h" />
     <ClInclude Include="headers\KatamariBall.h" />
