@@ -75,15 +75,24 @@ namespace Render {
         }
 
         void UpdatePSConstantBuffer(Game* game, const Vector4& color, bool useTexture, bool hasMaterial) {
-            PSConstantBuffer psCB;
+            // Используем унифицированный PSConstantBuffer с выравниванием
+            UINT alignedSize = (sizeof(PSConstantBuffer) + 15) & ~15;
+            char* alignedData = (char*)_aligned_malloc(alignedSize, 16);
+            memset(alignedData, 0, alignedSize);
+
+            PSConstantBuffer* psCB = (PSConstantBuffer*)alignedData;
             Vector3 camPos = game->Camera->GetPosition();
-            psCB.cameraPosition = Vector4(camPos.x, camPos.y, camPos.z, 1.0f);
-            psCB.objectColor = color;
-            psCB.useTexture = useTexture ? 1 : 0;
-            psCB.hasMaterial = hasMaterial ? 1 : 0;
-            psCB.useReflection = 0;
-            psCB.padding = 0.0f;
-            game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, &psCB, 0, 0);
+            psCB->cameraPosition = DirectX::XMFLOAT4(camPos.x, camPos.y, camPos.z, 1.0f);
+            psCB->objectColor = DirectX::XMFLOAT4(color.x, color.y, color.z, color.w);
+            psCB->useTexture = useTexture ? 1 : 0;
+            psCB->hasMaterial = hasMaterial ? 1 : 0;
+            psCB->useReflection = 0;
+            psCB->useShadow = 0;
+            psCB->shadowBias = 0.0f;
+            psCB->padding = 0.0f;
+
+            game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, alignedData, 0, 0);
+            _aligned_free(alignedData);
         }
 
         void UpdateMaterialBuffer(Game* game, const Material& mat) {
@@ -92,7 +101,7 @@ namespace Render {
             matBuffer.diffuse = mat.diffuse;
             matBuffer.specular = mat.specular;
             matBuffer.shininess = mat.shininess;
-            matBuffer.padding[0] = matBuffer.padding[1] = matBuffer.padding[2] = 0.0f;
+            matBuffer.materialPadding[0] = matBuffer.materialPadding[1] = matBuffer.materialPadding[2] = 0.0f;
             game->Context->UpdateSubresource(materialBuffer, 0, nullptr, &matBuffer, 0, 0);
         }
 

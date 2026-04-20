@@ -1,8 +1,10 @@
 #include "KatamariBall.h"
 #include "Prop.h"
 #include "Game.h"
+#include "ShadowRenderer.h"
 #include <d3dcompiler.h>
 #include <cmath>
+#include <iostream>
 
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -360,7 +362,7 @@ void KatamariBall::DrawBall() {
     sphereRenderer.Draw(game, world, ballColor,
         game->Camera->GetViewMatrix(),
         game->Camera->GetProjectionMatrix(),
-        ballTexture, &ballMaterial, true);
+        ballTexture, &ballMaterial, true, true);  // useReflection = true, useShadow = true
 }
 
 void KatamariBall::Draw() {
@@ -384,4 +386,37 @@ void KatamariBall::DestroyResources() {
     if (ballTexture) { ballTexture->Release(); ballTexture = nullptr; }
 
     debugInitialized = false;
+}
+
+void KatamariBall::DrawShadow() {
+    if (!sphereInitialized) return;
+
+    // Получаем world матрицу для шара
+    Vector3 rotAxis = Vector3(1, 0, 0);
+    float speed = velocity.Length();
+    if (speed > 0.01f) {
+        Vector3 moveDir = velocity;
+        moveDir.y = 0;
+        if (moveDir.Length() > 0.01f) {
+            moveDir.Normalize();
+            rotAxis = Vector3(0, 1, 0).Cross(moveDir);
+            if (rotAxis.Length() < 0.1f) rotAxis = Vector3(1, 0, 0);
+            else rotAxis.Normalize();
+        }
+    }
+
+    Quaternion rotation = Quaternion::CreateFromAxisAngle(rotAxis, rotationAngle);
+    Matrix world = Matrix::CreateScale(radius) *
+        Matrix::CreateFromQuaternion(rotation) *
+        Matrix::CreateTranslation(position);
+
+    static int frameCount = 0;
+    if (frameCount++ % 60 == 0) {
+        std::cout << "Ball shadow: pos(" << position.x << "," << position.y << "," << position.z
+            << ") radius=" << radius << std::endl;
+    }
+
+    game->ShadowRendererComp->DrawMesh(game,
+        sphereRenderer.GetVertexBuffer(), 0,
+        sphereRenderer.GetIndexBuffer(), sphereRenderer.GetIndexCount(), world);
 }

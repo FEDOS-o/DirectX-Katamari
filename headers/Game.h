@@ -22,6 +22,9 @@ class OrbitalCamera;
 class FirstPersonCamera;
 class Camera;
 class GameComponent;
+namespace Render {
+    class ShadowRenderer;
+}
 
 class Game {
 private:
@@ -32,6 +35,7 @@ private:
     ID3D11Texture2D* BackBuffer = nullptr;
     ID3D11UnorderedAccessView* RenderSRV = nullptr;
     ID3D11Debug* DebugAnnotation = nullptr;
+public:
     ID3D11RasterizerState* RasterizerState = nullptr;
 
     ID3D11Texture2D* DepthStencilBuffer = nullptr;
@@ -63,6 +67,42 @@ public:
     ID3D11ShaderResourceView* SkyboxTexture = nullptr;
 
     void UpdateLight(float deltaTime);
+
+    ID3D11Texture2D* ShadowMapTexture = nullptr;
+    ID3D11DepthStencilView* ShadowMapDSV = nullptr;
+    ID3D11ShaderResourceView* ShadowMapSRV = nullptr;
+    ID3D11SamplerState* ShadowSampler = nullptr;
+    ID3D11Buffer* shadowConstantBuffer = nullptr;
+
+    static constexpr UINT SHADOW_MAP_SIZE = 4096;
+    float ShadowBias = 0.005f;
+    float ShadowBiasSlope = 2.0f;
+
+    Vector3 LightDirection = Vector3(0.5f, -1.0f, 0.3f);
+    Vector3 LightTarget = Vector3(0, 0, 0);
+    float LightDistance = 50.0f;
+
+    HRESULT CreateShadowMapResources();
+    void PrepareShadowPass();
+    void SetShadowForRender();
+
+    ID3D11VertexShader* ShadowVertexShader = nullptr;
+    ID3D11PixelShader* ShadowPixelShader = nullptr;
+    ID3D11InputLayout* ShadowInputLayout = nullptr;
+
+    HRESULT CreateShadowShaders();
+    void RenderSceneToShadowMap();
+
+    Render::ShadowRenderer* ShadowRendererComp = nullptr;
+    ID3D11Buffer* shadowWorldConstantBuffer = nullptr;
+
+    void SetShadowWorldMatrix(const Matrix& world);
+
+    Matrix lightViewMatrix;
+    Matrix lightProjectionMatrix;
+
+    Matrix GetLightViewMatrix() const;
+    Matrix GetLightProjectionMatrix() const;
 
 public:
     Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG screenHeight);

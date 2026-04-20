@@ -10,9 +10,9 @@
 #include <string>
 
 float GetModelScale(const std::string& modelPath) {
-    if (modelPath.find("childrens_chair") != std::string::npos) return 0.01f;
+    if (modelPath.find("childrens_chair") != std::string::npos) return 0.05f;
     if (modelPath.find("BarrelNewOBJ") != std::string::npos) return 0.8f;
-    if (modelPath.find("coffee_table") != std::string::npos) return 0.012f;
+    if (modelPath.find("coffee_table") != std::string::npos) return 0.03f;
     if (modelPath.find("diamond") != std::string::npos) return 0.6f;
     if (modelPath.find("hammer") != std::string::npos) return 0.01f;
     if (modelPath.find("knife") != std::string::npos) return 0.04f;

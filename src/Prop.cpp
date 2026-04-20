@@ -1,5 +1,6 @@
 #include "Prop.h"
 #include "Game.h"
+#include "ShadowRenderer.h"
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <float.h>
@@ -184,4 +185,28 @@ void Prop::DestroyResources() {
 void Prop::SetPosition(const Vector3& pos) {
     position = pos;
     model.SetPosition(pos);
+}
+
+void Prop::DrawShadow() {
+    if (!model.IsValid()) return;
+
+    // Получаем меши из модели
+    const auto& meshes = model.GetMeshes();
+    if (meshes.empty()) return;
+
+    // Получаем world матрицу
+    Matrix world = Matrix::CreateScale(model.GetScale()) *
+        Matrix::CreateFromYawPitchRoll(model.GetRotation().y,
+            model.GetRotation().x,
+            model.GetRotation().z) *
+        Matrix::CreateTranslation(model.GetPosition());
+
+    // Рисуем каждый меш
+    for (MeshData* mesh : meshes) {
+        if (!mesh->vertexBuffer || !mesh->indexBuffer) continue;
+
+        game->ShadowRendererComp->DrawMesh(game,
+            mesh->vertexBuffer, (UINT)mesh->vertices.size(),
+            mesh->indexBuffer, mesh->indexCount, world);
+    }
 }

@@ -21,29 +21,54 @@ struct VSConstantBuffer {
     Matrix worldInvTranspose;
 };
 
+// УНИФИЦИРОВАННАЯ структура PSConstantBuffer для ВСЕХ шейдеров
+// ВАЖНО: должна соответствовать HLSL cbuffer PSConstantBuffer
+#pragma pack(push, 16)
 struct PSConstantBuffer {
-    Vector4 cameraPosition = Vector4(0, 0, 0, 1);
-    Vector4 objectColor = Vector4(1, 1, 1, 1);
-    int useTexture = 0;
-    int hasMaterial = 0;
-    int useReflection = 0;
-    float padding = 0.0f;
+    DirectX::XMFLOAT4 cameraPosition;
+    DirectX::XMFLOAT4 objectColor;
+    int useTexture;
+    int hasMaterial;
+    int useReflection;
+    int useShadow;
+    float shadowBias;
+    float padding;
 };
+#pragma pack(pop)
 
 struct MaterialBuffer {
-    Vector4 ambient = Vector4(0.2f, 0.2f, 0.2f, 1.0f);
-    Vector4 diffuse = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    Vector4 specular = Vector4(0.5f, 0.5f, 0.5f, 1.0f);
-    float shininess = 32.0f;
-    float padding[3] = { 0.0f, 0.0f, 0.0f };
+    Vector4 ambient;
+    Vector4 diffuse;
+    Vector4 specular;
+    float shininess;
+    float materialPadding[3];
 };
 
 struct DirectionalLightBuffer {
-    Vector4 ambient = Vector4(0.15f, 0.15f, 0.15f, 1.0f);
-    Vector4 diffuse = Vector4(0.8f, 0.8f, 0.8f, 1.0f);
-    Vector4 specular = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
-    Vector3 direction = Vector3(0.5f, -1.0f, 0.3f);
-    float padding = 0.0f;
+    Vector4 ambient;
+    Vector4 diffuse;
+    Vector4 specular;
+    Vector3 direction;
+    float padding;
+};
+
+// Основной ShadowConstantBuffer с отдельными матрицами
+#pragma pack(push, 16)
+struct ShadowConstantBuffer {
+    Matrix lightView;
+    Matrix lightProjection;
+};
+#pragma pack(pop)
+
+// Версия с комбинированной матрицей (используется в Game.cpp)
+#pragma pack(push, 16)
+struct ShadowConstantBufferCombined {
+    Matrix lightViewProj;
+};
+#pragma pack(pop)
+
+struct ShadowWorldConstantBuffer {
+    Matrix world;
 };
 
 #pragma warning(pop)

@@ -22,6 +22,7 @@
     <ClInclude Include="headers\Camera.h" />
     <ClInclude Include="headers\Core.h" />
     <ClInclude Include="headers\Delegates.h" />
+    <ClInclude Include="headers\DepthShader.h" />
     <ClInclude Include="headers\DisplayWin32.h" />
     <ClInclude Include="headers\FirstPersonCamera.h" />
     <ClInclude Include="headers\Game.h" />
@@ -31,6 +32,7 @@
     <ClInclude Include="headers\ModelLoader.h" />
     <ClInclude Include="headers\ModelRenderer.h" />
     <ClInclude Include="headers\ModelTypes.h" />
+    <ClInclude Include="headers\ShadowRenderer.h" />
     <ClInclude Include="headers\TexturedGround.h" />
     <ClInclude Include="headers\InputDevice.h" />
     <ClInclude Include="headers\KatamariBall.h" />
@@ -48,6 +50,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Delegates.cpp" />
+    <ClCompile Include="src\DepthShader.cpp" />
     <ClCompile Include="src\DisplayWin32.cpp" />
     <ClCompile Include="src\Game.cpp" />
     <ClCompile Include="src\InputDevice.cpp" />

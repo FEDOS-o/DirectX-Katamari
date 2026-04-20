@@ -27,8 +27,8 @@ private:
     bool homePressed = false;
 
 public:
-    OrbitalCamera(Game* game, const Vector3& target = Vector3(0, 0, 0),
-        float distance = 15.0f, float yaw = 0.0f, float pitch = 0.5f) :
+    OrbitalCamera(Game* game, const Vector3& target = Vector3(0, 2, 0),
+        float distance = 25.0f, float yaw = 0.0f, float pitch = 0.7f) :
         Camera(game), target(target), distance(distance), yaw(yaw), pitch(pitch) {
         UpdateCamera();
     }
@@ -97,10 +97,10 @@ public:
     }
 
     void ResetCamera() override {
-        target = Vector3(0, 0, 0);
-        distance = 15.0f;
+        target = Vector3(0, 2, 0);
+        distance = 25.0f;
         yaw = 0.0f;
-        pitch = 0.5f;
+        pitch = 0.7f;
         UpdateCamera();
     }
 

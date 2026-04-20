@@ -58,13 +58,20 @@ public:
             UpdateWorldMatrix();
         }
 
-        renderer.Draw(loader.GetMeshes(),
+        // Используем DrawWithShadow вместо Draw
+        renderer.DrawWithShadow(
+            loader.GetMeshes(),
             materialManager,
             worldMatrix,
             game->Camera->GetViewMatrix(),
             game->Camera->GetProjectionMatrix(),
             game->SunLight,
-            game->Camera->GetPosition());
+            game->Camera->GetPosition(),
+            game->ShadowMapSRV,           // shadow map
+            game->ShadowSampler,           // shadow sampler
+            game->GetLightViewMatrix(),    // light view
+            game->GetLightProjectionMatrix() // light projection
+        );
     }
 
     void SetPosition(const Vector3& pos) { position = pos; worldMatrixDirty = true; }
@@ -77,6 +84,7 @@ public:
 
     bool IsValid() const { return isValid; }
     size_t GetMeshCount() const { return loader.GetMeshes().size(); }
+    const std::vector<MeshData*>& GetMeshes() const { return loader.GetMeshes(); }
 
     void CalculateLocalBoundingBox() { loader.CalculateLocalBoundingBox(); }
     DirectX::BoundingBox GetLocalBoundingBox() const { return loader.GetLocalBoundingBox(); }

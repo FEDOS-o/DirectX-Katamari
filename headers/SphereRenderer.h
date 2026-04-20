@@ -9,6 +9,7 @@ namespace Render {
     private:
         ID3D11Buffer* vertexBuffer = nullptr;
         ID3D11Buffer* indexBuffer = nullptr;
+        ID3D11Buffer* shadowConstantBuffer = nullptr;
         UINT indexCount = 0;
         bool geometryInitialized = false;
 
@@ -80,6 +81,11 @@ namespace Render {
                 float4x4 worldInvTranspose;
             }
 
+            cbuffer ShadowConstantBuffer : register(b1) {
+                float4x4 lightView;
+                float4x4 lightProjection;
+            }
+
             struct VSInput {
                 float3 position : POSITION;
                 float4 color : COLOR;
@@ -93,6 +99,7 @@ namespace Render {
                 float2 texCoord : TEXCOORD0;
                 float3 worldNormal : TEXCOORD1;
                 float3 worldPosition : TEXCOORD2;
+                float4 shadowPos : TEXCOORD3;
             };
 
             VSOutput VSMain(VSInput input) {
@@ -109,6 +116,9 @@ namespace Render {
                 output.color = input.color;
                 output.texCoord = input.texCoord;
                 
+                float4 lightViewPos = mul(worldPos, lightView);
+                output.shadowPos = mul(lightViewPos, lightProjection);
+                
                 return output;
             }
         )";
@@ -120,6 +130,8 @@ namespace Render {
                 int useTexture;
                 int hasMaterial;
                 int useReflection;
+                int useShadow;
+                float shadowBias;
                 float padding;
             }
             
@@ -141,7 +153,9 @@ namespace Render {
             
             Texture2D objTexture : register(t0);
             TextureCube skyboxTexture : register(t1);
+            Texture2D shadowMap : register(t2);
             SamplerState objSampler : register(s0);
+            SamplerComparisonState shadowSampler : register(s1);
             
             struct VSOutput {
                 float4 position : SV_POSITION;
@@ -149,13 +163,13 @@ namespace Render {
                 float2 texCoord : TEXCOORD0;
                 float3 worldNormal : TEXCOORD1;
                 float3 worldPosition : TEXCOORD2;
+                float4 shadowPos : TEXCOORD3;
             };
             
             float4 PSMain(VSOutput input) : SV_TARGET {
                 float3 normal = normalize(input.worldNormal);
                 float3 lightDir = normalize(-lightDirection);
                 float3 viewDir = normalize(cameraPosition.xyz - input.worldPosition);
-                float3 reflectDir = reflect(-viewDir, normal);
                 float3 reflectLightDir = reflect(-lightDir, normal);
                 
                 float3 ambient = lightAmbient.rgb * materialAmbient.rgb;
@@ -163,9 +177,27 @@ namespace Render {
                 float3 diffuse = lightDiffuse.rgb * diff * materialDiffuse.rgb;
                 float spec = pow(max(dot(viewDir, reflectLightDir), 0.0f), shininess);
                 float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
-                float3 result = ambient + diffuse + specular;
+                
+                float shadowFactor = 1.0f;
+                if (useShadow != 0) {
+                    float3 projCoords = input.shadowPos.xyz / input.shadowPos.w;
+                    projCoords.x = projCoords.x * 0.5f + 0.5f;
+                    projCoords.y = projCoords.y * -0.5f + 0.5f;
+                    
+                    projCoords.z -= shadowBias;
+                    
+                    if (projCoords.x >= 0.0f && projCoords.x <= 1.0f &&
+                        projCoords.y >= 0.0f && projCoords.y <= 1.0f &&
+                        projCoords.z <= 1.0f) {
+                        shadowFactor = shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy, projCoords.z);
+                        shadowFactor = saturate(shadowFactor + 0.1f);
+                    }
+                }
+                
+                float3 result = ambient + (diffuse + specular) * shadowFactor;
                 
                 if (useReflection != 0) {
+                    float3 reflectDir = reflect(-viewDir, normal);
                     float3 reflection = skyboxTexture.Sample(objSampler, reflectDir).rgb;
                     result = result * 0.6f + reflection * 0.4f;
                 }
@@ -198,9 +230,9 @@ namespace Render {
 
             D3D11_INPUT_ELEMENT_DESC elements[] = {
                 {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-                {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
-                {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
-                {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
+                {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
+                {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
+                {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 36, D3D11_INPUT_PER_VERTEX_DATA, 0}
             };
 
             game->Device->CreateInputLayout(elements, 4, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
@@ -215,7 +247,37 @@ namespace Render {
 
             CreateGeometry(game, segments, baseColor);
             CreateShaders(game);
-            CreateStandardBuffers(game);
+
+            // ÂÀÆÍÎ: Ñîçäàåì áóôåðû ÂÐÓ×ÍÓÞ ñ ïðàâèëüíûìè ðàçìåðàìè
+            D3D11_BUFFER_DESC desc = {};
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+
+            desc.ByteWidth = sizeof(VSConstantBuffer);
+            game->Device->CreateBuffer(&desc, nullptr, &vsConstantBuffer);
+
+            // Ðàçìåð äîëæåí áûòü ÊÐÀÒÅÍ 16
+            UINT psBufferSize = sizeof(PSConstantBuffer);
+            UINT alignedSize = (psBufferSize + 15) & ~15;
+            desc.ByteWidth = alignedSize;
+            game->Device->CreateBuffer(&desc, nullptr, &psConstantBuffer);
+
+            desc.ByteWidth = sizeof(MaterialBuffer);
+            game->Device->CreateBuffer(&desc, nullptr, &materialBuffer);
+
+            desc.ByteWidth = sizeof(DirectionalLightBuffer);
+            game->Device->CreateBuffer(&desc, nullptr, &lightBuffer);
+
+            desc.ByteWidth = sizeof(ShadowConstantBuffer);
+            game->Device->CreateBuffer(&desc, nullptr, &shadowConstantBuffer);
+
+            D3D11_SAMPLER_DESC samplerDesc = {};
+            samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+            samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+            samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+            samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+            samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+            game->Device->CreateSamplerState(&samplerDesc, &samplerState);
 
             geometryInitialized = true;
             shadersInitialized = true;
@@ -225,25 +287,56 @@ namespace Render {
             const Matrix& view, const Matrix& projection,
             ID3D11ShaderResourceView* texture = nullptr,
             const Material* material = nullptr,
-            bool useReflection = false) {
+            bool useReflection = false,
+            bool useShadow = true) {
 
             if (!geometryInitialized || !game || !game->Context) return;
 
             UpdateLightBuffer(game, game->SunLight);
-            UpdateVSConstantBuffer(game, world, view, projection);
 
+            // VS áóôåð
+            VSConstantBuffer vsCB;
+            vsCB.world = world.Transpose();
+            vsCB.view = view.Transpose();
+            vsCB.projection = projection.Transpose();
+            Matrix worldInv = world;
+            worldInv.Invert();
+            vsCB.worldInvTranspose = worldInv.Transpose();
+            game->Context->UpdateSubresource(vsConstantBuffer, 0, nullptr, &vsCB, 0, 0);
+
+            // Shadow áóôåð
+            Matrix lightView = game->GetLightViewMatrix();
+            Matrix lightProjection = game->GetLightProjectionMatrix();
+            ShadowConstantBuffer shadowCB;
+            shadowCB.lightView = lightView.Transpose();
+            shadowCB.lightProjection = lightProjection.Transpose();
+            game->Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
+
+            // PS áóôåð - ÏÐßÌÎÅ ÈÑÏÎËÜÇÎÂÀÍÈÅ ÑÒÐÓÊÒÓÐÛ ÁÅÇ ÂÛÐÀÂÍÈÂÀÍÈß
+            // Áóôåð óæå ñîçäàí ñ âûðîâíåííûì ðàçìåðîì, äàííûå ìîæíî ïåðåäàâàòü êàê åñòü
             PSConstantBuffer psCB;
             Vector3 camPos = game->Camera->GetPosition();
-            psCB.cameraPosition = Vector4(camPos.x, camPos.y, camPos.z, 1.0f);
-            psCB.objectColor = color;
+            psCB.cameraPosition = DirectX::XMFLOAT4(camPos.x, camPos.y, camPos.z, 1.0f);
+            psCB.objectColor = DirectX::XMFLOAT4(color.x, color.y, color.z, color.w);
             psCB.useTexture = (texture != nullptr) ? 1 : 0;
             psCB.hasMaterial = (material != nullptr) ? 1 : 0;
             psCB.useReflection = useReflection ? 1 : 0;
+            psCB.useShadow = (useShadow && game->ShadowMapSRV) ? 1 : 0;
+            psCB.shadowBias = game->ShadowBias;
             psCB.padding = 0.0f;
+
             game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, &psCB, 0, 0);
 
             Material defaultMaterial(color, 32.0f);
-            UpdateMaterialBuffer(game, material ? *material : defaultMaterial);
+            const Material* matToUse = material ? material : &defaultMaterial;
+
+            MaterialBuffer matBuffer;
+            matBuffer.ambient = matToUse->ambient;
+            matBuffer.diffuse = matToUse->diffuse;
+            matBuffer.specular = matToUse->specular;
+            matBuffer.shininess = matToUse->shininess;
+            matBuffer.materialPadding[0] = matBuffer.materialPadding[1] = matBuffer.materialPadding[2] = 0.0f;
+            game->Context->UpdateSubresource(materialBuffer, 0, nullptr, &matBuffer, 0, 0);
 
             UINT stride = sizeof(Vertex);
             UINT offset = 0;
@@ -253,9 +346,14 @@ namespace Render {
             game->Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
             game->Context->VSSetShader(vertexShader, nullptr, 0);
-            game->Context->PSSetShader(pixelShader, nullptr, 0);
+            game->Context->VSSetConstantBuffers(0, 1, &vsConstantBuffer);
+            game->Context->VSSetConstantBuffers(1, 1, &shadowConstantBuffer);
 
-            BindStandardResources(game);
+            game->Context->PSSetShader(pixelShader, nullptr, 0);
+            game->Context->PSSetConstantBuffers(0, 1, &psConstantBuffer);
+            game->Context->PSSetConstantBuffers(1, 1, &materialBuffer);
+            game->Context->PSSetConstantBuffers(2, 1, &lightBuffer);
+            game->Context->PSSetSamplers(0, 1, &samplerState);
 
             if (texture) {
                 game->Context->PSSetShaderResources(0, 1, &texture);
@@ -265,6 +363,11 @@ namespace Render {
                 game->Context->PSSetShaderResources(1, 1, &game->SkyboxTexture);
             }
 
+            if (useShadow && game->ShadowMapSRV) {
+                game->Context->PSSetShaderResources(2, 1, &game->ShadowMapSRV);
+                game->Context->PSSetSamplers(1, 1, &game->ShadowSampler);
+            }
+
             game->Context->DrawIndexed(indexCount, 0, 0);
         }
 
@@ -272,8 +375,13 @@ namespace Render {
             ShaderRenderer::DestroyResources();
             if (vertexBuffer) { vertexBuffer->Release(); vertexBuffer = nullptr; }
             if (indexBuffer) { indexBuffer->Release(); indexBuffer = nullptr; }
+            if (shadowConstantBuffer) { shadowConstantBuffer->Release(); shadowConstantBuffer = nullptr; }
             geometryInitialized = false;
         }
+
+        ID3D11Buffer* GetVertexBuffer() const { return vertexBuffer; }
+        ID3D11Buffer* GetIndexBuffer() const { return indexBuffer; }
+        UINT GetIndexCount() const { return indexCount; }
     };
 
 } // namespace Render
