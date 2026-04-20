@@ -435,13 +435,13 @@ void Game::UpdateLight(float deltaTime) {
 HRESULT Game::CreateShadowMapResources() {
     if (!Device) return E_FAIL;
 
-    // Текстура для shadow map
+    // Текстура для shadow map - ИСПРАВЛЕНО: используем правильный формат
     D3D11_TEXTURE2D_DESC texDesc = {};
     texDesc.Width = SHADOW_MAP_SIZE;
     texDesc.Height = SHADOW_MAP_SIZE;
     texDesc.MipLevels = 1;
     texDesc.ArraySize = 1;
-    texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+    texDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;  // ИСПРАВЛЕНО: правильный формат для depth
     texDesc.SampleDesc.Count = 1;
     texDesc.Usage = D3D11_USAGE_DEFAULT;
     texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
@@ -451,7 +451,7 @@ HRESULT Game::CreateShadowMapResources() {
 
     // Depth Stencil View
     D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
-    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;  // ИСПРАВЛЕНО
     dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
     dsvDesc.Texture2D.MipSlice = 0;
 
@@ -460,7 +460,7 @@ HRESULT Game::CreateShadowMapResources() {
 
     // Shader Resource View
     D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+    srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;  // ИСПРАВЛЕНО
     srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
     srvDesc.Texture2D.MostDetailedMip = 0;
     srvDesc.Texture2D.MipLevels = 1;
@@ -468,9 +468,9 @@ HRESULT Game::CreateShadowMapResources() {
     hr = Device->CreateShaderResourceView(ShadowMapTexture, &srvDesc, &ShadowMapSRV);
     if (FAILED(hr)) return hr;
 
-    // УЛУЧШЕННЫЙ сэмплер для сравнения с PCF
+    // Сэмплер для сравнения теней
     D3D11_SAMPLER_DESC samplerDesc = {};
-    samplerDesc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;  // Линейная фильтрация для PCF
+    samplerDesc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
     samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
     samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
     samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
@@ -497,7 +497,8 @@ HRESULT Game::CreateShadowMapResources() {
     cbDesc.ByteWidth = sizeof(ShadowWorldConstantBuffer);
     hr = Device->CreateBuffer(&cbDesc, nullptr, &shadowWorldConstantBuffer);
 
-    ShadowBias = 0.0005f;  // Уменьшаем bias для лучшего качества
+    // ИСПРАВЛЕНО: уменьшаем bias
+    ShadowBias = 0.00005f;
 
     return hr;
 }
@@ -505,14 +506,11 @@ HRESULT Game::CreateShadowMapResources() {
 void Game::PrepareShadowPass() {
     if (!Context || !ShadowMapDSV) return;
 
-    // Очищаем shadow map
     Context->ClearDepthStencilView(ShadowMapDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-    // Устанавливаем только depth target
     ID3D11RenderTargetView* nullRTV[1] = { nullptr };
     Context->OMSetRenderTargets(0, nullRTV, ShadowMapDSV);
 
-    // Viewport для shadow map
     D3D11_VIEWPORT viewport = {};
     viewport.Width = (float)SHADOW_MAP_SIZE;
     viewport.Height = (float)SHADOW_MAP_SIZE;
@@ -522,23 +520,27 @@ void Game::PrepareShadowPass() {
     viewport.TopLeftY = 0;
     Context->RSSetViewports(1, &viewport);
 
-    // Позиция и направление света
+    // ИСПРАВЛЕНО: фиксированные параметры для стабильных теней
     Vector3 lightPos = Vector3(-20.0f, 30.0f, -20.0f);
-    Vector3 lightTarget = Vector3(0, 2, 0);
+    Vector3 lightTarget = Vector3(0.0f, 2.0f, 0.0f);
     Vector3 up = Vector3(0, 1, 0);
 
-    // Создаем view матрицу света
+    // Используем направление света для позиции
+    Vector3 lightDir = SunLight.direction;
+    lightDir.Normalize();
+    lightPos = lightTarget - lightDir * 50.0f;  // Расстояние от цели
+
     lightViewMatrix = Matrix::CreateLookAt(lightPos, lightTarget, up);
 
-    // Ортографическая проекция для света
-    float orthoSize = 60.0f;
-    lightProjectionMatrix = Matrix::CreateOrthographic(orthoSize, orthoSize, 0.1f, 100.0f);
+    // ИСПРАВЛЕНО: ортографическая проекция с правильными параметрами
+    float orthoSize = 40.0f;
+    float nearPlane = 1.0f;
+    float farPlane = 100.0f;
+    lightProjectionMatrix = Matrix::CreateOrthographic(orthoSize, orthoSize, nearPlane, farPlane);
 
-    // Комбинированная матрица: сначала view, потом projection
-    Matrix lightViewProj = lightViewMatrix * lightProjectionMatrix;
-
-    // Обновляем константный буфер
+    // Комбинированная матрица
     ShadowConstantBufferCombined shadowCB;
+    Matrix lightViewProj = lightViewMatrix * lightProjectionMatrix;
     shadowCB.lightViewProj = lightViewProj.Transpose();
     Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
     Context->VSSetConstantBuffers(0, 1, &shadowConstantBuffer);

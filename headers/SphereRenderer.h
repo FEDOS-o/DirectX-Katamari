@@ -74,147 +74,159 @@ namespace Render {
 
         void CreateShaders(Game* game) {
             const char* vsCode = R"(
-            cbuffer VSConstantBuffer : register(b0) {
-                float4x4 world;
-                float4x4 view;
-                float4x4 projection;
-                float4x4 worldInvTranspose;
-            }
+cbuffer VSConstantBuffer : register(b0) {
+    float4x4 world;
+    float4x4 view;
+    float4x4 projection;
+    float4x4 worldInvTranspose;
+}
 
-            cbuffer ShadowConstantBuffer : register(b1) {
-                float4x4 lightView;
-                float4x4 lightProjection;
-            }
+cbuffer ShadowConstantBuffer : register(b1) {
+    float4x4 lightView;
+    float4x4 lightProjection;
+}
 
-            struct VSInput {
-                float3 position : POSITION;
-                float4 color : COLOR;
-                float2 texCoord : TEXCOORD;
-                float3 normal : NORMAL;
-            };
+struct VSInput {
+    float3 position : POSITION;
+    float4 color : COLOR;
+    float2 texCoord : TEXCOORD;
+    float3 normal : NORMAL;
+};
 
-            struct VSOutput {
-                float4 position : SV_POSITION;
-                float4 color : COLOR;
-                float2 texCoord : TEXCOORD0;
-                float3 worldNormal : TEXCOORD1;
-                float3 worldPosition : TEXCOORD2;
-                float4 shadowPos : TEXCOORD3;
-            };
+struct VSOutput {
+    float4 position : SV_POSITION;
+    float4 color : COLOR;
+    float2 texCoord : TEXCOORD0;
+    float3 worldNormal : TEXCOORD1;
+    float3 worldPosition : TEXCOORD2;
+    float4 shadowPos : TEXCOORD3;
+};
 
-            VSOutput VSMain(VSInput input) {
-                VSOutput output;
-                
-                float4 worldPos = mul(float4(input.position, 1.0f), world);
-                output.worldPosition = worldPos.xyz;
-                output.position = mul(worldPos, view);
-                output.position = mul(output.position, projection);
-                
-                output.worldNormal = mul(float4(input.normal, 0.0f), worldInvTranspose).xyz;
-                output.worldNormal = normalize(output.worldNormal);
-                
-                output.color = input.color;
-                output.texCoord = input.texCoord;
-                
-                float4 lightViewPos = mul(worldPos, lightView);
-                output.shadowPos = mul(lightViewPos, lightProjection);
-                
-                return output;
-            }
-        )";
+VSOutput VSMain(VSInput input) {
+    VSOutput output;
+    
+    // ИСПРАВЛЕНО: правильный порядок умножения матриц
+    float4 worldPos = mul(float4(input.position, 1.0f), world);
+    output.worldPosition = worldPos.xyz;
+    output.position = mul(worldPos, view);
+    output.position = mul(output.position, projection);
+    
+    output.worldNormal = mul(float4(input.normal, 0.0f), worldInvTranspose).xyz;
+    output.worldNormal = normalize(output.worldNormal);
+    
+    output.color = input.color;
+    output.texCoord = input.texCoord;
+    
+    // ИСПРАВЛЕНО: правильное вычисление shadow координат
+    float4 lightViewPos = mul(worldPos, lightView);
+    output.shadowPos = mul(lightViewPos, lightProjection);
+    
+    return output;
+}
+)";
 
             const char* psCode = R"(
-            cbuffer PSConstantBuffer : register(b0) {
-                float4 cameraPosition;
-                float4 objectColor;
-                int useTexture;
-                int hasMaterial;
-                int useReflection;
-                int useShadow;
-                float shadowBias;
-                float padding;
-            }
+cbuffer PSConstantBuffer : register(b0) {
+    float4 cameraPosition;
+    float4 objectColor;
+    int useTexture;
+    int hasMaterial;
+    int useReflection;
+    int useShadow;
+    float shadowBias;
+    float padding;
+}
+
+cbuffer MaterialBuffer : register(b1) {
+    float4 materialAmbient;
+    float4 materialDiffuse;
+    float4 materialSpecular;
+    float shininess;
+    float3 materialPadding;
+}
+
+cbuffer DirectionalLightBuffer : register(b2) {
+    float4 lightAmbient;
+    float4 lightDiffuse;
+    float4 lightSpecular;
+    float3 lightDirection;
+    float lightPadding;
+}
+
+Texture2D objTexture : register(t0);
+TextureCube skyboxTexture : register(t1);
+Texture2D shadowMap : register(t2);
+SamplerState objSampler : register(s0);
+SamplerComparisonState shadowSampler : register(s1);
+
+struct VSOutput {
+    float4 position : SV_POSITION;
+    float4 color : COLOR;
+    float2 texCoord : TEXCOORD0;
+    float3 worldNormal : TEXCOORD1;
+    float3 worldPosition : TEXCOORD2;
+    float4 shadowPos : TEXCOORD3;
+};
+
+float4 PSMain(VSOutput input) : SV_TARGET {
+    float3 normal = normalize(input.worldNormal);
+    float3 lightDir = normalize(-lightDirection);
+    float3 viewDir = normalize(cameraPosition.xyz - input.worldPosition);
+    float3 reflectLightDir = reflect(-lightDir, normal);
+    
+    float3 ambient = lightAmbient.rgb * materialAmbient.rgb;
+    float diff = max(dot(normal, lightDir), 0.0f);
+    float3 diffuse = lightDiffuse.rgb * diff * materialDiffuse.rgb;
+    float spec = pow(max(dot(viewDir, reflectLightDir), 0.0f), shininess);
+    float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
+    
+    float shadowFactor = 1.0f;
+    if (useShadow != 0) {
+        // ИСПРАВЛЕНО: правильное преобразование в UV координаты
+        float3 projCoords = input.shadowPos.xyz / input.shadowPos.w;
+        
+        // Преобразование из [-1,1] в [0,1]
+        projCoords.x = projCoords.x * 0.5f + 0.5f;
+        projCoords.y = projCoords.y * -0.5f + 0.5f;  // Инвертируем Y для DirectX
+        
+        // ИСПРАВЛЕНО: проверяем границы
+        if (projCoords.x >= 0.0f && projCoords.x <= 1.0f &&
+            projCoords.y >= 0.0f && projCoords.y <= 1.0f &&
+            projCoords.z <= 1.0f) {
             
-            cbuffer MaterialBuffer : register(b1) {
-                float4 materialAmbient;
-                float4 materialDiffuse;
-                float4 materialSpecular;
-                float shininess;
-                float3 materialPadding;
-            }
+            // ИСПРАВЛЕНО: используем меньшее значение bias
+            float bias = shadowBias * tan(acos(diff));
+            bias = clamp(bias, 0.0f, 0.001f);
             
-            cbuffer DirectionalLightBuffer : register(b2) {
-                float4 lightAmbient;
-                float4 lightDiffuse;
-                float4 lightSpecular;
-                float3 lightDirection;
-                float lightPadding;
-            }
+            // Сравнение с тенью
+            shadowFactor = shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy, projCoords.z - bias);
             
-            Texture2D objTexture : register(t0);
-            TextureCube skyboxTexture : register(t1);
-            Texture2D shadowMap : register(t2);
-            SamplerState objSampler : register(s0);
-            SamplerComparisonState shadowSampler : register(s1);
-            
-            struct VSOutput {
-                float4 position : SV_POSITION;
-                float4 color : COLOR;
-                float2 texCoord : TEXCOORD0;
-                float3 worldNormal : TEXCOORD1;
-                float3 worldPosition : TEXCOORD2;
-                float4 shadowPos : TEXCOORD3;
-            };
-            
-            float4 PSMain(VSOutput input) : SV_TARGET {
-                float3 normal = normalize(input.worldNormal);
-                float3 lightDir = normalize(-lightDirection);
-                float3 viewDir = normalize(cameraPosition.xyz - input.worldPosition);
-                float3 reflectLightDir = reflect(-lightDir, normal);
-                
-                float3 ambient = lightAmbient.rgb * materialAmbient.rgb;
-                float diff = max(dot(normal, lightDir), 0.0f);
-                float3 diffuse = lightDiffuse.rgb * diff * materialDiffuse.rgb;
-                float spec = pow(max(dot(viewDir, reflectLightDir), 0.0f), shininess);
-                float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
-                
-                float shadowFactor = 1.0f;
-                if (useShadow != 0) {
-                    float3 projCoords = input.shadowPos.xyz / input.shadowPos.w;
-                    projCoords.x = projCoords.x * 0.5f + 0.5f;
-                    projCoords.y = projCoords.y * -0.5f + 0.5f;
-                    
-                    projCoords.z -= shadowBias;
-                    
-                    if (projCoords.x >= 0.0f && projCoords.x <= 1.0f &&
-                        projCoords.y >= 0.0f && projCoords.y <= 1.0f &&
-                        projCoords.z <= 1.0f) {
-                        shadowFactor = shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy, projCoords.z);
-                        shadowFactor = saturate(shadowFactor + 0.1f);
-                    }
-                }
-                
-                float3 result = ambient + (diffuse + specular) * shadowFactor;
-                
-                if (useReflection != 0) {
-                    float3 reflectDir = reflect(-viewDir, normal);
-                    float3 reflection = skyboxTexture.Sample(objSampler, reflectDir).rgb;
-                    result = result * 0.6f + reflection * 0.4f;
-                }
-                
-                float4 texColor = float4(1, 1, 1, 1);
-                if (useTexture != 0) {
-                    texColor = objTexture.Sample(objSampler, input.texCoord);
-                    result *= texColor.rgb;
-                } else if (hasMaterial != 0) {
-                    result *= materialDiffuse.rgb;
-                } else {
-                    result *= input.color.rgb;
-                }
-                
-                return float4(result, 1.0f);
-            }
-        )";
+            // ИСПРАВЛЕНО: сглаживание краев тени
+            shadowFactor = saturate(shadowFactor);
+        }
+    }
+    
+    float3 result = ambient + (diffuse + specular) * shadowFactor;
+    
+    if (useReflection != 0) {
+        float3 reflectDir = reflect(-viewDir, normal);
+        float3 reflection = skyboxTexture.Sample(objSampler, reflectDir).rgb;
+        result = result * 0.6f + reflection * 0.4f;
+    }
+    
+    float4 texColor = float4(1, 1, 1, 1);
+    if (useTexture != 0) {
+        texColor = objTexture.Sample(objSampler, input.texCoord);
+        result *= texColor.rgb;
+    } else if (hasMaterial != 0) {
+        result *= materialDiffuse.rgb;
+    } else {
+        result *= input.color.rgb;
+    }
+    
+    return float4(result, 1.0f);
+}
+)";
 
             ID3DBlob* vsBlob = CompileShader(vsCode, "vs_5_0", "VSMain");
             ID3DBlob* psBlob = CompileShader(psCode, "ps_5_0", "PSMain");

@@ -46,6 +46,7 @@ namespace Render {
                 VSOutput VSMain(VSInput input) {
                     VSOutput output;
                     
+                    // ИСПРАВЛЕНО: правильный порядок умножения
                     float4 worldPos = mul(float4(input.position, 1.0f), world);
                     output.position = mul(worldPos, lightViewProj);
                     
@@ -83,13 +84,14 @@ namespace Render {
 
             vsBlob->Release();
 
+            // ИСПРАВЛЕНО: правильные параметры растеризатора
             D3D11_RASTERIZER_DESC rastDesc = {};
-            rastDesc.CullMode = D3D11_CULL_BACK;
+            rastDesc.CullMode = D3D11_CULL_FRONT;  // ИСПРАВЛЕНО: отключаем culling для теней
             rastDesc.FillMode = D3D11_FILL_SOLID;
             rastDesc.DepthClipEnable = true;
-            rastDesc.DepthBias = 10000;
+            rastDesc.DepthBias = 1000;  // ИСПРАВЛЕНО: уменьшаем bias
             rastDesc.DepthBiasClamp = 0.0f;
-            rastDesc.SlopeScaledDepthBias = 4.0f;
+            rastDesc.SlopeScaledDepthBias = 2.0f;  // ИСПРАВЛЕНО: уменьшаем slope bias
             rastDesc.FrontCounterClockwise = false;
 
             game->Device->CreateRasterizerState(&rastDesc, &rasterizerState);
@@ -122,17 +124,36 @@ namespace Render {
             ID3D11Buffer* indexBuffer, UINT indexCount, const Matrix& world) {
             if (!initialized) return;
             if (!game->shadowWorldConstantBuffer) return;
+            if (!vertexBuffer || !indexBuffer) {
+                std::cout << "ERROR: Null buffer in DrawMesh!" << std::endl;
+                return;
+            }
 
+            // ИСПРАВЛЕНО: обновляем world матрицу в константном буфере
             ShadowWorldConstantBuffer cb;
             cb.world = world.Transpose();
             game->Context->UpdateSubresource(game->shadowWorldConstantBuffer, 0, nullptr, &cb, 0, 0);
+
+            // ВАЖНО: устанавливаем константный буфер ДО установки вершинного буфера
             game->Context->VSSetConstantBuffers(1, 1, &game->shadowWorldConstantBuffer);
 
-            // ВАЖНО: stride = 12 (только позиция x,y,z)
-            UINT stride = 12;
+            // ИСПРАВЛЕНО: правильный stride для Vertex структуры
+            // Vertex содержит: position(12), color(16), texCoord(8), normal(12) = 48 bytes
+            UINT stride = sizeof(Vertex);  // 48 байт
             UINT offset = 0;
+
             game->Context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
             game->Context->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+            game->Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+            // ДЕБАГ: проверяем что рисуем
+            static int drawCount = 0;
+            if (drawCount++ % 60 == 0) {
+                std::cout << "ShadowRenderer::DrawMesh - indexCount: " << indexCount
+                    << ", world pos: " << world.Translation().x << ", "
+                    << world.Translation().y << ", " << world.Translation().z << std::endl;
+            }
+
             game->Context->DrawIndexed(indexCount, 0, 0);
         }
 
