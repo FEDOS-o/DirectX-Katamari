@@ -75,7 +75,7 @@ public:
     ID3D11Buffer* shadowConstantBuffer = nullptr;
 
     static constexpr UINT SHADOW_MAP_SIZE = 4096;
-    float ShadowBias = 0.005f;
+    float ShadowBias = 0.0005f;
     float ShadowBiasSlope = 2.0f;
 
     Vector3 LightDirection = Vector3(0.5f, -1.0f, 0.3f);

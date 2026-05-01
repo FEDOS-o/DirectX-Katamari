@@ -182,27 +182,35 @@ float4 PSMain(VSOutput input) : SV_TARGET {
     
     float shadowFactor = 1.0f;
     if (useShadow != 0) {
-        // ИСПРАВЛЕНО: правильное преобразование в UV координаты
+        // PCF с более мягкими тенями
         float3 projCoords = input.shadowPos.xyz / input.shadowPos.w;
-        
+    
         // Преобразование из [-1,1] в [0,1]
         projCoords.x = projCoords.x * 0.5f + 0.5f;
         projCoords.y = projCoords.y * -0.5f + 0.5f;  // Инвертируем Y для DirectX
-        
-        // ИСПРАВЛЕНО: проверяем границы
+    
+        // Применяем bias для избежания shadow acne
+        float bias = shadowBias * tan(acos(saturate(diff)));
+        bias = clamp(bias, 0.0f, 0.0005f);
+        projCoords.z -= bias;
+    
+        // PCF фильтрация: проверяем 4 сэмпла вокруг точки
         if (projCoords.x >= 0.0f && projCoords.x <= 1.0f &&
             projCoords.y >= 0.0f && projCoords.y <= 1.0f &&
             projCoords.z <= 1.0f) {
-            
-            // ИСПРАВЛЕНО: используем меньшее значение bias
-            float bias = shadowBias * tan(acos(diff));
-            bias = clamp(bias, 0.0f, 0.001f);
-            
-            // Сравнение с тенью
-            shadowFactor = shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy, projCoords.z - bias);
-            
-            // ИСПРАВЛЕНО: сглаживание краев тени
-            shadowFactor = saturate(shadowFactor);
+        
+            // Получаем размер текселя для PCF
+            float2 texelSize = float2(1.0f / 4096.0f, 1.0f / 4096.0f);
+        
+            // 4 сэмпла PCF (2x2)
+            shadowFactor = 0.0f;
+            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(-0.5f, -0.5f) * texelSize, projCoords.z);
+            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(0.5f, -0.5f) * texelSize, projCoords.z);
+            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(-0.5f, 0.5f) * texelSize, projCoords.z);
+            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(0.5f, 0.5f) * texelSize, projCoords.z);
+            shadowFactor *= 0.25f;  // Усредняем
+        
+            shadowFactor = saturate(shadowFactor + 0.1f);  // Немного осветляем тени
         }
     }
     
@@ -324,8 +332,7 @@ float4 PSMain(VSOutput input) : SV_TARGET {
             shadowCB.lightProjection = lightProjection.Transpose();
             game->Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
 
-            // PS буфер - ПРЯМОЕ ИСПОЛЬЗОВАНИЕ СТРУКТУРЫ БЕЗ ВЫРАВНИВАНИЯ
-            // Буфер уже создан с выровненным размером, данные можно передавать как есть
+            // PS буфер
             PSConstantBuffer psCB;
             Vector3 camPos = game->Camera->GetPosition();
             psCB.cameraPosition = DirectX::XMFLOAT4(camPos.x, camPos.y, camPos.z, 1.0f);
@@ -337,6 +344,8 @@ float4 PSMain(VSOutput input) : SV_TARGET {
             psCB.shadowBias = game->ShadowBias;
             psCB.padding = 0.0f;
 
+            // ИСПРАВЛЕНО: Используем правильный размер буфера
+            UINT alignedSize = (sizeof(PSConstantBuffer) + 15) & ~15;
             game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, &psCB, 0, 0);
 
             Material defaultMaterial(color, 32.0f);

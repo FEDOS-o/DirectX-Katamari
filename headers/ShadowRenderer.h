@@ -28,7 +28,8 @@ namespace Render {
 
             const char* vsCode = R"(
                 cbuffer ShadowConstantBuffer : register(b0) {
-                    matrix lightViewProj;
+                    matrix lightView;
+                    matrix lightProjection;
                 };
 
                 cbuffer WorldConstantBuffer : register(b1) {
@@ -45,11 +46,12 @@ namespace Render {
 
                 VSOutput VSMain(VSInput input) {
                     VSOutput output;
-                    
-                    // ÈÑÏÐÀÂËÅÍÎ: ïðàâèëüíûé ïîðÿäîê óìíîæåíèÿ
+        
+                    // ÏÐÀÂÈËÜÍÛÉ ïîðÿäîê: world -> view -> projection
                     float4 worldPos = mul(float4(input.position, 1.0f), world);
-                    output.position = mul(worldPos, lightViewProj);
-                    
+                    float4 viewPos = mul(worldPos, lightView);
+                    output.position = mul(viewPos, lightProjection);
+        
                     return output;
                 }
             )";

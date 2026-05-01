@@ -22,7 +22,6 @@ struct VSConstantBuffer {
 };
 
 // УНИФИЦИРОВАННАЯ структура PSConstantBuffer для ВСЕХ шейдеров
-// ВАЖНО: должна соответствовать HLSL cbuffer PSConstantBuffer
 #pragma pack(push, 16)
 struct PSConstantBuffer {
     DirectX::XMFLOAT4 cameraPosition;

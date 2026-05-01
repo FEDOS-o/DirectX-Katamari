@@ -490,7 +490,7 @@ HRESULT Game::CreateShadowMapResources() {
     cbDesc.Usage = D3D11_USAGE_DEFAULT;
     cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 
-    cbDesc.ByteWidth = sizeof(ShadowConstantBufferCombined);
+    cbDesc.ByteWidth = sizeof(ShadowConstantBuffer);
     hr = Device->CreateBuffer(&cbDesc, nullptr, &shadowConstantBuffer);
     if (FAILED(hr)) return hr;
 
@@ -539,9 +539,9 @@ void Game::PrepareShadowPass() {
     lightProjectionMatrix = Matrix::CreateOrthographic(orthoSize, orthoSize, nearPlane, farPlane);
 
     // Комбинированная матрица
-    ShadowConstantBufferCombined shadowCB;
-    Matrix lightViewProj = lightViewMatrix * lightProjectionMatrix;
-    shadowCB.lightViewProj = lightViewProj.Transpose();
+    ShadowConstantBuffer shadowCB;
+    shadowCB.lightView = lightViewMatrix.Transpose();
+    shadowCB.lightProjection = lightProjectionMatrix.Transpose();
     Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
     Context->VSSetConstantBuffers(0, 1, &shadowConstantBuffer);
 }
