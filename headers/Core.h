@@ -31,7 +31,10 @@ struct PSConstantBuffer {
     int useReflection;
     int useShadow;
     float shadowBias;
-    float padding;
+    float cascadeSplit0;  // Глубина разбиения каскад 0->1
+    float cascadeSplit1;  // Глубина разбиения каскад 1->2
+    float cascadeSplit2;  // Глубина разбиения каскад 2->3
+    float padding;  // Оставляем для совместимости
 };
 #pragma pack(pop)
 
@@ -51,11 +54,11 @@ struct DirectionalLightBuffer {
     float padding;
 };
 
-// Основной ShadowConstantBuffer с отдельными матрицами
+// Основной ShadowConstantBuffer с 4 каскадами (раздельные матрицы)
 #pragma pack(push, 16)
 struct ShadowConstantBuffer {
-    Matrix lightView;
-    Matrix lightProjection;
+    Matrix lightView[4];
+    Matrix lightProjection[4];
 };
 #pragma pack(pop)
 

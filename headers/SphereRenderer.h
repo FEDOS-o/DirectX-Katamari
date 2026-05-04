@@ -74,167 +74,192 @@ namespace Render {
 
         void CreateShaders(Game* game) {
             const char* vsCode = R"(
-cbuffer VSConstantBuffer : register(b0) {
-    float4x4 world;
-    float4x4 view;
-    float4x4 projection;
-    float4x4 worldInvTranspose;
-}
+                cbuffer VSConstantBuffer : register(b0) {
+                    float4x4 world;
+                    float4x4 view;
+                    float4x4 projection;
+                    float4x4 worldInvTranspose;
+                }
 
-cbuffer ShadowConstantBuffer : register(b1) {
-    float4x4 lightView;
-    float4x4 lightProjection;
-}
+                cbuffer ShadowConstantBuffer : register(b1) {
+                    float4x4 lightView[4];
+                    float4x4 lightProjection[4];
+                }
 
-struct VSInput {
-    float3 position : POSITION;
-    float4 color : COLOR;
-    float2 texCoord : TEXCOORD;
-    float3 normal : NORMAL;
-};
+                struct VSInput {
+                    float3 position : POSITION;
+                    float4 color : COLOR;
+                    float2 texCoord : TEXCOORD;
+                    float3 normal : NORMAL;
+                };
 
-struct VSOutput {
-    float4 position : SV_POSITION;
-    float4 color : COLOR;
-    float2 texCoord : TEXCOORD0;
-    float3 worldNormal : TEXCOORD1;
-    float3 worldPosition : TEXCOORD2;
-    float4 shadowPos : TEXCOORD3;
-};
+                struct VSOutput {
+                    float4 position : SV_POSITION;
+                    float4 color : COLOR;
+                    float2 texCoord : TEXCOORD0;
+                    float3 worldNormal : TEXCOORD1;
+                    float3 worldPosition : TEXCOORD2;
+                    float4 shadowPos0 : TEXCOORD3;
+                    float4 shadowPos1 : TEXCOORD4;
+                    float4 shadowPos2 : TEXCOORD5;
+                    float4 shadowPos3 : TEXCOORD6;
+                };
 
-VSOutput VSMain(VSInput input) {
-    VSOutput output;
+                VSOutput VSMain(VSInput input) {
+                    VSOutput output;
     
-    // ИСПРАВЛЕНО: правильный порядок умножения матриц
-    float4 worldPos = mul(float4(input.position, 1.0f), world);
-    output.worldPosition = worldPos.xyz;
-    output.position = mul(worldPos, view);
-    output.position = mul(output.position, projection);
+                    float4 worldPos = mul(float4(input.position, 1.0f), world);
+                    output.worldPosition = worldPos.xyz;
+                    output.position = mul(worldPos, view);
+                    output.position = mul(output.position, projection);
     
-    output.worldNormal = mul(float4(input.normal, 0.0f), worldInvTranspose).xyz;
-    output.worldNormal = normalize(output.worldNormal);
+                    output.worldNormal = mul(float4(input.normal, 0.0f), worldInvTranspose).xyz;
+                    output.worldNormal = normalize(output.worldNormal);
     
-    output.color = input.color;
-    output.texCoord = input.texCoord;
+                    output.color = input.color;
+                    output.texCoord = input.texCoord;
     
-    // ИСПРАВЛЕНО: правильное вычисление shadow координат
-    float4 lightViewPos = mul(worldPos, lightView);
-    output.shadowPos = mul(lightViewPos, lightProjection);
+                    // Вычисляем shadow позиции для всех 4 каскадов
+                    float4 lightViewPos0 = mul(worldPos, lightView[0]);
+                    output.shadowPos0 = mul(lightViewPos0, lightProjection[0]);
     
-    return output;
-}
-)";
+                    float4 lightViewPos1 = mul(worldPos, lightView[1]);
+                    output.shadowPos1 = mul(lightViewPos1, lightProjection[1]);
+    
+                    float4 lightViewPos2 = mul(worldPos, lightView[2]);
+                    output.shadowPos2 = mul(lightViewPos2, lightProjection[2]);
+    
+                    float4 lightViewPos3 = mul(worldPos, lightView[3]);
+                    output.shadowPos3 = mul(lightViewPos3, lightProjection[3]);
+    
+                    return output;
+                }
+            )";
 
             const char* psCode = R"(
-cbuffer PSConstantBuffer : register(b0) {
-    float4 cameraPosition;
-    float4 objectColor;
-    int useTexture;
-    int hasMaterial;
-    int useReflection;
-    int useShadow;
-    float shadowBias;
-    float padding;
-}
+                cbuffer PSConstantBuffer : register(b0) {
+                    float4 cameraPosition;
+                    float4 objectColor;
+                    int useTexture;
+                    int hasMaterial;
+                    int useReflection;
+                    int useShadow;
+                    float shadowBias;
+                    float cascadeSplit0;
+                    float cascadeSplit1;
+                    float cascadeSplit2;
+                }
 
-cbuffer MaterialBuffer : register(b1) {
-    float4 materialAmbient;
-    float4 materialDiffuse;
-    float4 materialSpecular;
-    float shininess;
-    float3 materialPadding;
-}
+                cbuffer MaterialBuffer : register(b1) {
+                    float4 materialAmbient;
+                    float4 materialDiffuse;
+                    float4 materialSpecular;
+                    float shininess;
+                    float3 materialPadding;
+                }
 
-cbuffer DirectionalLightBuffer : register(b2) {
-    float4 lightAmbient;
-    float4 lightDiffuse;
-    float4 lightSpecular;
-    float3 lightDirection;
-    float lightPadding;
-}
+                cbuffer DirectionalLightBuffer : register(b2) {
+                    float4 lightAmbient;
+                    float4 lightDiffuse;
+                    float4 lightSpecular;
+                    float3 lightDirection;
+                    float lightPadding;
+                }
 
-Texture2D objTexture : register(t0);
-TextureCube skyboxTexture : register(t1);
-Texture2D shadowMap : register(t2);
-SamplerState objSampler : register(s0);
-SamplerComparisonState shadowSampler : register(s1);
+                Texture2D objTexture : register(t0);
+                TextureCube skyboxTexture : register(t1);
+                Texture2DArray shadowMap : register(t2);
+                SamplerState objSampler : register(s0);
+                SamplerComparisonState shadowSampler : register(s1);
 
-struct VSOutput {
-    float4 position : SV_POSITION;
-    float4 color : COLOR;
-    float2 texCoord : TEXCOORD0;
-    float3 worldNormal : TEXCOORD1;
-    float3 worldPosition : TEXCOORD2;
-    float4 shadowPos : TEXCOORD3;
-};
+                struct VSOutput {
+                    float4 position : SV_POSITION;
+                    float4 color : COLOR;
+                    float2 texCoord : TEXCOORD0;
+                    float3 worldNormal : TEXCOORD1;
+                    float3 worldPosition : TEXCOORD2;
+                    float4 shadowPos0 : TEXCOORD3;
+                    float4 shadowPos1 : TEXCOORD4;
+                    float4 shadowPos2 : TEXCOORD5;
+                    float4 shadowPos3 : TEXCOORD6;
+                };
 
-float4 PSMain(VSOutput input) : SV_TARGET {
-    float3 normal = normalize(input.worldNormal);
-    float3 lightDir = normalize(-lightDirection);
-    float3 viewDir = normalize(cameraPosition.xyz - input.worldPosition);
-    float3 reflectLightDir = reflect(-lightDir, normal);
+                float4 PSMain(VSOutput input) : SV_TARGET {
+                    float3 normal = normalize(input.worldNormal);
+                    float3 lightDir = normalize(-lightDirection);
+                    float3 viewDir = normalize(cameraPosition.xyz - input.worldPosition);
+                    float3 reflectLightDir = reflect(-lightDir, normal);
     
-    float3 ambient = lightAmbient.rgb * materialAmbient.rgb;
-    float diff = max(dot(normal, lightDir), 0.0f);
-    float3 diffuse = lightDiffuse.rgb * diff * materialDiffuse.rgb;
-    float spec = pow(max(dot(viewDir, reflectLightDir), 0.0f), shininess);
-    float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
+                    float3 ambient = lightAmbient.rgb * materialAmbient.rgb;
+                    float diff = max(dot(normal, lightDir), 0.0f);
+                    float3 diffuse = lightDiffuse.rgb * diff * materialDiffuse.rgb;
+                    float spec = pow(max(dot(viewDir, reflectLightDir), 0.0f), shininess);
+                    float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
     
-    float shadowFactor = 1.0f;
-    if (useShadow != 0) {
-        // PCF с более мягкими тенями
-        float3 projCoords = input.shadowPos.xyz / input.shadowPos.w;
+                    float shadowFactor = 1.0f;
+                    if (useShadow != 0) {
+                        float depth = length(cameraPosition.xyz - input.worldPosition);
     
-        // Преобразование из [-1,1] в [0,1]
-        projCoords.x = projCoords.x * 0.5f + 0.5f;
-        projCoords.y = projCoords.y * -0.5f + 0.5f;  // Инвертируем Y для DirectX
+                        float4 shadowPos;
+                        int cascadeIndex = 0;
+                        if (depth <= cascadeSplit0) {
+                            shadowPos = input.shadowPos0;
+                            cascadeIndex = 0;
+                        } else if (depth <= cascadeSplit1) {
+                            shadowPos = input.shadowPos1;
+                            cascadeIndex = 1;
+                        } else if (depth <= cascadeSplit2) {
+                            shadowPos = input.shadowPos2;
+                            cascadeIndex = 2;
+                        } else {
+                            shadowPos = input.shadowPos3;
+                            cascadeIndex = 3;
+                        }
     
-        // Применяем bias для избежания shadow acne
-        float bias = shadowBias * tan(acos(saturate(diff)));
-        bias = clamp(bias, 0.0f, 0.0005f);
-        projCoords.z -= bias;
+                        float3 projCoords = shadowPos.xyz / shadowPos.w;
+                        projCoords.x = projCoords.x * 0.5f + 0.5f;
+                        projCoords.y = projCoords.y * -0.5f + 0.5f;
     
-        // PCF фильтрация: проверяем 4 сэмпла вокруг точки
-        if (projCoords.x >= 0.0f && projCoords.x <= 1.0f &&
-            projCoords.y >= 0.0f && projCoords.y <= 1.0f &&
-            projCoords.z <= 1.0f) {
+                        float bias = shadowBias * tan(acos(saturate(diff)));
+                        bias = clamp(bias, 0.0f, 0.0005f);
+                        projCoords.z -= bias;
+    
+                        if (projCoords.x >= 0.0f && projCoords.x <= 1.0f &&
+                            projCoords.y >= 0.0f && projCoords.y <= 1.0f) {
         
-            // Получаем размер текселя для PCF
-            float2 texelSize = float2(1.0f / 4096.0f, 1.0f / 4096.0f);
+                            float2 texelSize = float2(1.0f / 2048.0f, 1.0f / 2048.0f);
+                            shadowFactor = 0.0f;
+                            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, float3(projCoords.xy + float2(-0.5f, -0.5f) * texelSize, cascadeIndex), projCoords.z);
+                            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, float3(projCoords.xy + float2(0.5f, -0.5f) * texelSize, cascadeIndex), projCoords.z);
+                            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, float3(projCoords.xy + float2(-0.5f, 0.5f) * texelSize, cascadeIndex), projCoords.z);
+                            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, float3(projCoords.xy + float2(0.5f, 0.5f) * texelSize, cascadeIndex), projCoords.z);
+                            shadowFactor *= 0.25f;
         
-            // 4 сэмпла PCF (2x2)
-            shadowFactor = 0.0f;
-            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(-0.5f, -0.5f) * texelSize, projCoords.z);
-            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(0.5f, -0.5f) * texelSize, projCoords.z);
-            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(-0.5f, 0.5f) * texelSize, projCoords.z);
-            shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(0.5f, 0.5f) * texelSize, projCoords.z);
-            shadowFactor *= 0.25f;  // Усредняем
-        
-            shadowFactor = saturate(shadowFactor + 0.1f);  // Немного осветляем тени
-        }
-    }
+                            shadowFactor = saturate(shadowFactor + 0.1f);
+                        }
+                    }
     
-    float3 result = ambient + (diffuse + specular) * shadowFactor;
+                    float3 result = ambient + (diffuse + specular) * shadowFactor;
     
-    if (useReflection != 0) {
-        float3 reflectDir = reflect(-viewDir, normal);
-        float3 reflection = skyboxTexture.Sample(objSampler, reflectDir).rgb;
-        result = result * 0.6f + reflection * 0.4f;
-    }
+                    if (useReflection != 0) {
+                        float3 reflectDir = reflect(-viewDir, normal);
+                        float3 reflection = skyboxTexture.Sample(objSampler, reflectDir).rgb;
+                        result = result * 0.6f + reflection * 0.4f;
+                    }
     
-    float4 texColor = float4(1, 1, 1, 1);
-    if (useTexture != 0) {
-        texColor = objTexture.Sample(objSampler, input.texCoord);
-        result *= texColor.rgb;
-    } else if (hasMaterial != 0) {
-        result *= materialDiffuse.rgb;
-    } else {
-        result *= input.color.rgb;
-    }
+                    float4 texColor = float4(1, 1, 1, 1);
+                    if (useTexture != 0) {
+                        texColor = objTexture.Sample(objSampler, input.texCoord);
+                        result *= texColor.rgb;
+                    } else if (hasMaterial != 0) {
+                        result *= materialDiffuse.rgb;
+                    } else {
+                        result *= input.color.rgb;
+                    }
     
-    return float4(result, 1.0f);
-}
-)";
+                    return float4(result, 1.0f);
+                }
+            )";
 
             ID3DBlob* vsBlob = CompileShader(vsCode, "vs_5_0", "VSMain");
             ID3DBlob* psBlob = CompileShader(psCode, "ps_5_0", "PSMain");
@@ -324,12 +349,12 @@ float4 PSMain(VSOutput input) : SV_TARGET {
             vsCB.worldInvTranspose = worldInv.Transpose();
             game->Context->UpdateSubresource(vsConstantBuffer, 0, nullptr, &vsCB, 0, 0);
 
-            // Shadow буфер
-            Matrix lightView = game->GetLightViewMatrix();
-            Matrix lightProjection = game->GetLightProjectionMatrix();
+            // CSM буфер с 4 каскадами (раздельные матрицы)
             ShadowConstantBuffer shadowCB;
-            shadowCB.lightView = lightView.Transpose();
-            shadowCB.lightProjection = lightProjection.Transpose();
+            for (int i = 0; i < 4; i++) {
+                shadowCB.lightView[i] = game->GetCascadeLightViewMatrix(i).Transpose();
+                shadowCB.lightProjection[i] = game->GetCascadeLightProjectionMatrix(i).Transpose();
+            }
             game->Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
 
             // PS буфер
@@ -342,7 +367,9 @@ float4 PSMain(VSOutput input) : SV_TARGET {
             psCB.useReflection = useReflection ? 1 : 0;
             psCB.useShadow = (useShadow && game->ShadowMapSRV) ? 1 : 0;
             psCB.shadowBias = game->ShadowBias;
-            psCB.padding = 0.0f;
+            psCB.cascadeSplit0 = game->GetCascadeSplitDepth(0);
+            psCB.cascadeSplit1 = game->GetCascadeSplitDepth(1);
+            psCB.cascadeSplit2 = game->GetCascadeSplitDepth(2);
 
             // ИСПРАВЛЕНО: Используем правильный размер буфера
             UINT alignedSize = (sizeof(PSConstantBuffer) + 15) & ~15;
@@ -384,8 +411,8 @@ float4 PSMain(VSOutput input) : SV_TARGET {
                 game->Context->PSSetShaderResources(1, 1, &game->SkyboxTexture);
             }
 
-            if (useShadow && game->ShadowMapSRV) {
-                game->Context->PSSetShaderResources(2, 1, &game->ShadowMapSRV);
+            if (useShadow && game->CSMShadowMapSRVs[0]) {
+                game->Context->PSSetShaderResources(2, 1, &game->CSMShadowMapSRVs[0]);
                 game->Context->PSSetSamplers(1, 1, &game->ShadowSampler);
             }
 

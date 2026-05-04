@@ -28,12 +28,12 @@ namespace Render {
 
             const char* vsCode = R"(
                 cbuffer ShadowConstantBuffer : register(b0) {
-                    matrix lightView;
-                    matrix lightProjection;
+                    float4x4 lightView[4];
+                    float4x4 lightProjection[4];
                 };
 
                 cbuffer WorldConstantBuffer : register(b1) {
-                    matrix world;
+                    float4x4 world;
                 };
 
                 struct VSInput {
@@ -46,12 +46,11 @@ namespace Render {
 
                 VSOutput VSMain(VSInput input) {
                     VSOutput output;
-        
-                    // ПРАВИЛЬНЫЙ порядок: world -> view -> projection
+    
                     float4 worldPos = mul(float4(input.position, 1.0f), world);
-                    float4 viewPos = mul(worldPos, lightView);
-                    output.position = mul(viewPos, lightProjection);
-        
+                    float4 viewPos = mul(worldPos, lightView[0]);
+                    output.position = mul(viewPos, lightProjection[0]);
+    
                     return output;
                 }
             )";
@@ -86,14 +85,15 @@ namespace Render {
 
             vsBlob->Release();
 
-            // ИСПРАВЛЕНО: правильные параметры растеризатора
+            // ИСПРАВЛЕНО: CULL_BACK с HW растеризацией (стандарт)
+            // Используем slope-scaled depth bias для избежания shadow acne
             D3D11_RASTERIZER_DESC rastDesc = {};
-            rastDesc.CullMode = D3D11_CULL_FRONT;  // ИСПРАВЛЕНО: отключаем culling для теней
+            rastDesc.CullMode = D3D11_CULL_BACK;
             rastDesc.FillMode = D3D11_FILL_SOLID;
             rastDesc.DepthClipEnable = true;
-            rastDesc.DepthBias = 1000;  // ИСПРАВЛЕНО: уменьшаем bias
+            rastDesc.DepthBias = 10000;         // Достаточно большой bias
             rastDesc.DepthBiasClamp = 0.0f;
-            rastDesc.SlopeScaledDepthBias = 2.0f;  // ИСПРАВЛЕНО: уменьшаем slope bias
+            rastDesc.SlopeScaledDepthBias = 2.0f;
             rastDesc.FrontCounterClockwise = false;
 
             game->Device->CreateRasterizerState(&rastDesc, &rasterizerState);
@@ -110,7 +110,7 @@ namespace Render {
             std::cout << "ShadowRenderer initialized successfully" << std::endl;
         }
 
-        void BeginShadowPass(Game* game) {
+        void BeginShadowPass(Game* game, UINT cascadeIndex = 0) {
             if (!initialized) return;
 
             game->Context->VSSetShader(vertexShader, nullptr, 0);
@@ -131,30 +131,22 @@ namespace Render {
                 return;
             }
 
-            // ИСПРАВЛЕНО: обновляем world матрицу в константном буфере
+            // Обновляем world матрицу в константном буфере (слот b1)
             ShadowWorldConstantBuffer cb;
             cb.world = world.Transpose();
             game->Context->UpdateSubresource(game->shadowWorldConstantBuffer, 0, nullptr, &cb, 0, 0);
 
-            // ВАЖНО: устанавливаем константный буфер ДО установки вершинного буфера
+            // Устанавливаем константный буфер
             game->Context->VSSetConstantBuffers(1, 1, &game->shadowWorldConstantBuffer);
 
-            // ИСПРАВЛЕНО: правильный stride для Vertex структуры
-            // Vertex содержит: position(12), color(16), texCoord(8), normal(12) = 48 bytes
+            // Правильный stride для Vertex (позиция с оффсетом 0)
+            // Vertex: position(12) + color(16) + texCoord(8) + normal(12) = 48 bytes
             UINT stride = sizeof(Vertex);  // 48 байт
             UINT offset = 0;
 
             game->Context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
             game->Context->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
             game->Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-            // ДЕБАГ: проверяем что рисуем
-            static int drawCount = 0;
-            if (drawCount++ % 60 == 0) {
-                std::cout << "ShadowRenderer::DrawMesh - indexCount: " << indexCount
-                    << ", world pos: " << world.Translation().x << ", "
-                    << world.Translation().y << ", " << world.Translation().z << std::endl;
-            }
 
             game->Context->DrawIndexed(indexCount, 0, 0);
         }

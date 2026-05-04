@@ -6,6 +6,7 @@
 #include "InputDevice.h"
 #include "ShadowRenderer.h"
 #include <iostream>
+#include <algorithm>
 
 Game::Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG screenHeight) :
     Instance(hInstance),
@@ -172,6 +173,12 @@ HRESULT Game::Initialize() {
         return res;
     }
 
+    // Создаём CSM ресурсы (пока не используются)
+    res = CreateCSMResources();
+    if (FAILED(res)) {
+        return res;
+    }
+
     CD3D11_RASTERIZER_DESC rastDesc = {};
     rastDesc.CullMode = D3D11_CULL_FRONT;
     rastDesc.FillMode = D3D11_FILL_SOLID;
@@ -272,24 +279,29 @@ void Game::RestoreTargets() {
 }
 
 void Game::Draw() {
-    // ====== ПРОХОД 1: Рендеринг в Shadow Map ======
-    PrepareShadowPass();
+    // Обновляем каскады
+    UpdateCascades();
 
-    if (ShadowRendererComp) {
-        ShadowRendererComp->BeginShadowPass(this);
+    // ====== ПРОХОД 1: CSM Shadow Pass (4 каскада) ======
+    for (UINT cascade = 0; cascade < CASCADE_COUNT; ++cascade) {
+        PrepareCSMShadowPass(cascade);
+
+        if (ShadowRendererComp) {
+            ShadowRendererComp->BeginShadowPass(this);
+        }
+
+        Context->VSSetConstantBuffers(0, 1, &shadowConstantBuffer);
+
+        for (auto* component : components) {
+            component->DrawShadow();
+        }
+
+        if (ShadowRendererComp) {
+            ShadowRendererComp->EndShadowPass(this);
+        }
     }
 
-    Context->VSSetConstantBuffers(0, 1, &shadowConstantBuffer);
-
-    for (auto* component : components) {
-        component->DrawShadow();
-    }
-
-    if (ShadowRendererComp) {
-        ShadowRendererComp->EndShadowPass(this);
-    }
-
-    // ====== ВАЖНО: Восстанавливаем render target и viewport ======
+    // ====== Восстанавливаем render target ======
     Context->OMSetRenderTargets(1, &RenderView, DepthStencilView);
 
     D3D11_VIEWPORT viewport = {};
@@ -309,20 +321,11 @@ void Game::Draw() {
     Context->ClearRenderTargetView(RenderView, clearColor);
     Context->ClearDepthStencilView(DepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-    // Устанавливаем shadow map ресурсы для пиксельного шейдера
-    if (ShadowMapSRV) {
-        Context->PSSetShaderResources(2, 1, &ShadowMapSRV);
-    }
-    if (ShadowSampler) {
-        Context->PSSetSamplers(1, 1, &ShadowSampler);
-    }
-
-    // Основной рендеринг
+    // Основной рендеринг (шейдеры сами устанавливают shadow ресурсы)
     for (auto* component : components) {
         component->Draw();
     }
 }
-
 
 void Game::EndFrame() {
     SwapChain->Present(1, 0);
@@ -373,6 +376,8 @@ void Game::DestroyResources() {
     if (SwapChain) { SwapChain->Release(); SwapChain = nullptr; }
     if (Display) { delete Display; Display = nullptr; }
     if (Input) { delete Input; Input = nullptr; }
+
+    // Старые ресурсы
     if (ShadowMapTexture) { ShadowMapTexture->Release(); ShadowMapTexture = nullptr; }
     if (ShadowMapDSV) { ShadowMapDSV->Release(); ShadowMapDSV = nullptr; }
     if (ShadowMapSRV) { ShadowMapSRV->Release(); ShadowMapSRV = nullptr; }
@@ -383,6 +388,14 @@ void Game::DestroyResources() {
     if (ShadowInputLayout) { ShadowInputLayout->Release(); ShadowInputLayout = nullptr; }
     if (ShadowRendererComp) { delete ShadowRendererComp; ShadowRendererComp = nullptr; }
     if (shadowWorldConstantBuffer) { shadowWorldConstantBuffer->Release(); shadowWorldConstantBuffer = nullptr; }
+
+    // Новые CSM ресурсы
+    if (CSMShadowMapTexture) { CSMShadowMapTexture->Release(); CSMShadowMapTexture = nullptr; }
+    for (int i = 0; i < CASCADE_COUNT; ++i) {
+        if (CSMShadowMapDSVs[i]) { CSMShadowMapDSVs[i]->Release(); CSMShadowMapDSVs[i] = nullptr; }
+        if (CSMShadowMapSRVs[i]) { CSMShadowMapSRVs[i]->Release(); CSMShadowMapSRVs[i] = nullptr; }
+    }
+    if (csmConstantBuffer) { csmConstantBuffer->Release(); csmConstantBuffer = nullptr; }
 }
 
 void Game::Run() {
@@ -432,16 +445,18 @@ void Game::UpdateLight(float deltaTime) {
     SunLight.direction.Normalize();
 }
 
+// ===== СТАРЫЕ МЕТОДЫ (работают как раньше) =====
+
 HRESULT Game::CreateShadowMapResources() {
     if (!Device) return E_FAIL;
 
-    // Текстура для shadow map - ИСПРАВЛЕНО: используем правильный формат
+    // Текстура для shadow map
     D3D11_TEXTURE2D_DESC texDesc = {};
     texDesc.Width = SHADOW_MAP_SIZE;
     texDesc.Height = SHADOW_MAP_SIZE;
     texDesc.MipLevels = 1;
     texDesc.ArraySize = 1;
-    texDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;  // ИСПРАВЛЕНО: правильный формат для depth
+    texDesc.Format = DXGI_FORMAT_R24G8_TYPELESS;
     texDesc.SampleDesc.Count = 1;
     texDesc.Usage = D3D11_USAGE_DEFAULT;
     texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
@@ -451,7 +466,7 @@ HRESULT Game::CreateShadowMapResources() {
 
     // Depth Stencil View
     D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
-    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;  // ИСПРАВЛЕНО
+    dsvDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
     dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
     dsvDesc.Texture2D.MipSlice = 0;
 
@@ -460,7 +475,7 @@ HRESULT Game::CreateShadowMapResources() {
 
     // Shader Resource View
     D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;  // ИСПРАВЛЕНО
+    srvDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
     srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
     srvDesc.Texture2D.MostDetailedMip = 0;
     srvDesc.Texture2D.MipLevels = 1;
@@ -497,7 +512,6 @@ HRESULT Game::CreateShadowMapResources() {
     cbDesc.ByteWidth = sizeof(ShadowWorldConstantBuffer);
     hr = Device->CreateBuffer(&cbDesc, nullptr, &shadowWorldConstantBuffer);
 
-    // ИСПРАВЛЕНО: уменьшаем bias
     ShadowBias = 0.00005f;
 
     return hr;
@@ -520,7 +534,7 @@ void Game::PrepareShadowPass() {
     viewport.TopLeftY = 0;
     Context->RSSetViewports(1, &viewport);
 
-    // ИСПРАВЛЕНО: фиксированные параметры для стабильных теней
+    // Фиксированные параметры для стабильных теней
     Vector3 lightPos = Vector3(-20.0f, 30.0f, -20.0f);
     Vector3 lightTarget = Vector3(0.0f, 2.0f, 0.0f);
     Vector3 up = Vector3(0, 1, 0);
@@ -528,11 +542,11 @@ void Game::PrepareShadowPass() {
     // Используем направление света для позиции
     Vector3 lightDir = SunLight.direction;
     lightDir.Normalize();
-    lightPos = lightTarget - lightDir * 50.0f;  // Расстояние от цели
+    lightPos = lightTarget - lightDir * 50.0f;
 
     lightViewMatrix = Matrix::CreateLookAt(lightPos, lightTarget, up);
 
-    // ИСПРАВЛЕНО: ортографическая проекция с правильными параметрами
+    // Ортографическая проекция
     float orthoSize = 40.0f;
     float nearPlane = 1.0f;
     float farPlane = 100.0f;
@@ -540,8 +554,10 @@ void Game::PrepareShadowPass() {
 
     // Комбинированная матрица
     ShadowConstantBuffer shadowCB;
-    shadowCB.lightView = lightViewMatrix.Transpose();
-    shadowCB.lightProjection = lightProjectionMatrix.Transpose();
+    for (int i = 0; i < 4; i++) {
+        shadowCB.lightView[i] = lightViewMatrix.Transpose();
+        shadowCB.lightProjection[i] = lightProjectionMatrix.Transpose();
+    }
     Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
     Context->VSSetConstantBuffers(0, 1, &shadowConstantBuffer);
 }
@@ -570,4 +586,225 @@ Matrix Game::GetLightViewMatrix() const {
 
 Matrix Game::GetLightProjectionMatrix() const {
     return lightProjectionMatrix;
+}
+
+// ===== НОВЫЕ CSM МЕТОДЫ (пока не используются) =====
+
+HRESULT Game::CreateCSMResources() {
+    if (!Device) return E_FAIL;
+
+    // Текстурный массив для CSM
+    D3D11_TEXTURE2D_DESC texDesc = {};
+    texDesc.Width = CSM_SHADOW_MAP_SIZE;
+    texDesc.Height = CSM_SHADOW_MAP_SIZE;
+    texDesc.MipLevels = 1;
+    texDesc.ArraySize = CASCADE_COUNT;
+    texDesc.Format = DXGI_FORMAT_R32_TYPELESS;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Usage = D3D11_USAGE_DEFAULT;
+    texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+
+    HRESULT hr = Device->CreateTexture2D(&texDesc, nullptr, &CSMShadowMapTexture);
+    if (FAILED(hr)) return hr;
+
+    // DSV для каждого каскада (отдельный срез)
+    D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
+    dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
+    dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2DARRAY;
+    dsvDesc.Texture2DArray.MipSlice = 0;
+
+    for (UINT i = 0; i < CASCADE_COUNT; ++i) {
+        dsvDesc.Texture2DArray.FirstArraySlice = i;
+        dsvDesc.Texture2DArray.ArraySize = 1;
+        hr = Device->CreateDepthStencilView(CSMShadowMapTexture, &dsvDesc, &CSMShadowMapDSVs[i]);
+        if (FAILED(hr)) return hr;
+    }
+
+    // ОДИН SRV на ВЕСЬ Texture2DArray (все 4 среза)
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDescAll = {};
+    srvDescAll.Format = DXGI_FORMAT_R32_FLOAT;
+    srvDescAll.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;
+    srvDescAll.Texture2DArray.MostDetailedMip = 0;
+    srvDescAll.Texture2DArray.MipLevels = 1;
+    srvDescAll.Texture2DArray.FirstArraySlice = 0;
+    srvDescAll.Texture2DArray.ArraySize = CASCADE_COUNT;  // ВСЕ 4 среза
+
+    hr = Device->CreateShaderResourceView(CSMShadowMapTexture, &srvDescAll, &CSMShadowMapSRVs[0]);
+    if (FAILED(hr)) return hr;
+
+    // Остальные слоты SRV не нужны, но оставим для совместимости
+    for (UINT i = 1; i < CASCADE_COUNT; ++i) {
+        CSMShadowMapSRVs[i] = nullptr;
+    }
+
+    // Константный буфер для CSM
+    D3D11_BUFFER_DESC cbDesc = {};
+    cbDesc.Usage = D3D11_USAGE_DEFAULT;
+    cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    cbDesc.ByteWidth = sizeof(CSMConstantBuffer);
+    hr = Device->CreateBuffer(&cbDesc, nullptr, &csmConstantBuffer);
+
+    return hr;
+}
+
+void Game::UpdateCascades() {
+    // Параметры основной камеры
+    float camNear = 0.5f;
+    float camFar = 200.0f;
+    Matrix camView = Camera->GetViewMatrix();
+    Matrix camProj = Camera->GetProjectionMatrix();
+
+    // Вычисляем split distances (глубины разбиения каскадов)
+    float splits[CASCADE_COUNT];
+    for (UINT i = 0; i < CASCADE_COUNT; ++i) {
+        float p = (float)(i + 1) / CASCADE_COUNT;
+        float logSplit = camNear * pow(camFar / camNear, p);
+        float uniformSplit = camNear + (camFar - camNear) * p;
+        splits[i] = cascadeSplitLambda * logSplit + (1.0f - cascadeSplitLambda) * uniformSplit;
+    }
+
+    // Инвертированная ViewProj матрица камеры для извлечения frustum corners
+    Matrix invCamViewProj = (camView * camProj).Invert();
+
+    Vector3 lightDir = SunLight.direction;
+    lightDir.Normalize();
+
+    Vector3 up = Vector3(0, 1, 0);
+    // Если lightDir параллелен up, используем другой up
+    if (abs(lightDir.Dot(up)) > 0.999f) {
+        up = Vector3(1, 0, 0);
+    }
+
+    for (UINT cascade = 0; cascade < CASCADE_COUNT; ++cascade) {
+        float cascadeNear = (cascade == 0) ? camNear : splits[cascade - 1];
+        float cascadeFar = splits[cascade];
+
+        cascades[cascade].splitDepth = cascadeFar;
+
+        // Получаем 8 углов frustum суб-секции в world space
+        Vector3 frustumCorners[8];
+
+        // NDC куба в порядке: near-bottom-left, near-bottom-right, near-top-right, near-top-left,
+        //                      far-bottom-left,  far-bottom-right,  far-top-right,  far-top-left
+        Vector4 ndcCorners[8] = {
+            Vector4(-1, -1, 0, 1), // near-bottom-left
+            Vector4(1, -1, 0, 1), // near-bottom-right
+            Vector4(1,  1, 0, 1), // near-top-right
+            Vector4(-1,  1, 0, 1), // near-top-left
+            Vector4(-1, -1, 1, 1), // far-bottom-left
+            Vector4(1, -1, 1, 1), // far-bottom-right
+            Vector4(1,  1, 1, 1), // far-top-right
+            Vector4(-1,  1, 1, 1)  // far-top-left
+        };
+
+        // Преобразуем NDC углы в world space
+        for (int i = 0; i < 8; ++i) {
+            Vector4 worldPos = Vector4::Transform(ndcCorners[i], invCamViewProj);
+            frustumCorners[i] = Vector3(worldPos.x, worldPos.y, worldPos.z) / worldPos.w;
+        }
+
+        // Интерполируем углы для конкретного каскада
+        Vector3 nearCorners[4], farCorners[4];
+        for (int i = 0; i < 4; ++i) {
+            nearCorners[i] = frustumCorners[i];
+            farCorners[i] = frustumCorners[i + 4];
+        }
+
+        Vector3 cascadeCorners[8];
+        for (int i = 0; i < 4; ++i) {
+            // Линейная интерполяция между near и far плоскостями камеры
+            float nearT = (cascadeNear - camNear) / (camFar - camNear);
+            float farT = (cascadeFar - camNear) / (camFar - camNear);
+            cascadeCorners[i] = nearCorners[i] + (farCorners[i] - nearCorners[i]) * nearT;
+            cascadeCorners[i + 4] = nearCorners[i] + (farCorners[i] - nearCorners[i]) * farT;
+        }
+
+        // Центр frustum каскада
+        Vector3 frustumCenter = Vector3::Zero;
+        for (int i = 0; i < 8; ++i) {
+            frustumCenter += cascadeCorners[i];
+        }
+        frustumCenter /= 8.0f;
+
+        // Радиус сферы, охватывающей frustum
+        float radius = 0.0f;
+        for (int i = 0; i < 8; ++i) {
+            float dist = (cascadeCorners[i] - frustumCenter).Length();
+            radius = std::max(radius, dist);
+        }
+
+        // Увеличиваем радиус для PCF фильтрации
+        float texelsPerUnit = CSM_SHADOW_MAP_SIZE / (radius * 2.0f);
+
+        // Позиция света
+        Vector3 lightPos = frustumCenter - lightDir * radius;
+
+        // Создаём View матрицу для света
+        Matrix lightView = Matrix::CreateLookAt(lightPos, frustumCenter, up);
+
+        // Стабилизация теней (убираем дрожание)
+        // Преобразуем центр frustum в light space
+        Vector3 lightSpaceCenter = Vector3::Transform(frustumCenter, lightView);
+
+        // Округляем до ближайшего текселя
+        lightSpaceCenter.x = floor(lightSpaceCenter.x * texelsPerUnit) / texelsPerUnit;
+        lightSpaceCenter.y = floor(lightSpaceCenter.y * texelsPerUnit) / texelsPerUnit;
+
+        // Преобразуем обратно в world space
+        Matrix invLightView = lightView.Invert();
+        Vector3 roundedWorldCenter = Vector3::Transform(lightSpaceCenter, invLightView);
+        Vector3 offset = frustumCenter - roundedWorldCenter;
+
+        lightPos += offset;
+        lightView = Matrix::CreateLookAt(lightPos, roundedWorldCenter, up);
+
+        cascades[cascade].viewMatrix = lightView;
+
+        // Ортографическая проекция для света
+        Matrix lightProj = Matrix::CreateOrthographicOffCenter(
+            -radius, radius, -radius, radius, 0.0f, radius * 2.0f);
+
+        cascades[cascade].projMatrix = lightProj;
+    }
+}
+
+void Game::PrepareCSMShadowPass(UINT cascade) {
+    if (!Context || cascade >= CASCADE_COUNT) return;
+
+    Context->ClearDepthStencilView(CSMShadowMapDSVs[cascade], D3D11_CLEAR_DEPTH, 1.0f, 0);
+
+    ID3D11RenderTargetView* nullRTV[1] = { nullptr };
+    Context->OMSetRenderTargets(0, nullRTV, CSMShadowMapDSVs[cascade]);
+
+    D3D11_VIEWPORT viewport = {};
+    viewport.Width = (float)CSM_SHADOW_MAP_SIZE;
+    viewport.Height = (float)CSM_SHADOW_MAP_SIZE;
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+    viewport.TopLeftX = 0;
+    viewport.TopLeftY = 0;
+    Context->RSSetViewports(1, &viewport);
+
+    // Заполняем 4 каскада (для совместимости с шейдером, который ожидает массив из 4)
+    // НО передаём правильную матрицу для ТЕКУЩЕГО каскада в свой слот
+    // ShadowRenderer использует ТОЛЬКО slot [0] для lightView и lightProj
+    ShadowConstantBuffer shadowCB;
+    for (int i = 0; i < 4; i++) {
+        shadowCB.lightView[i] = cascades[cascade].viewMatrix.Transpose();
+        shadowCB.lightProjection[i] = cascades[cascade].projMatrix.Transpose();
+    }
+    Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
+    Context->VSSetConstantBuffers(0, 1, &shadowConstantBuffer);
+}
+
+Matrix Game::GetCascadeLightViewMatrix(UINT cascade) const {
+    return (cascade < CASCADE_COUNT) ? cascades[cascade].viewMatrix : Matrix::Identity;
+}
+
+Matrix Game::GetCascadeLightProjectionMatrix(UINT cascade) const {
+    return (cascade < CASCADE_COUNT) ? cascades[cascade].projMatrix : Matrix::Identity;
+}
+
+float Game::GetCascadeSplitDepth(UINT cascade) const {
+    return (cascade < CASCADE_COUNT) ? cascades[cascade].splitDepth : 0.0f;
 }

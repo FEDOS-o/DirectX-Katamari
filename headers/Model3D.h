@@ -58,7 +58,6 @@ public:
             UpdateWorldMatrix();
         }
 
-        // »спользуем DrawWithShadow вместо Draw
         renderer.DrawWithShadow(
             loader.GetMeshes(),
             materialManager,
@@ -67,10 +66,10 @@ public:
             game->Camera->GetProjectionMatrix(),
             game->SunLight,
             game->Camera->GetPosition(),
-            game->ShadowMapSRV,           // shadow map
-            game->ShadowSampler,           // shadow sampler
-            game->GetLightViewMatrix(),    // light view
-            game->GetLightProjectionMatrix() // light projection
+            game->CSMShadowMapSRVs[0],              // »—ѕќЋ№«”≈ћ CSM каскад 0
+            game->ShadowSampler,
+            game->GetCascadeLightViewMatrix(0),     // CSM матрицы
+            game->GetCascadeLightProjectionMatrix(0)
         );
     }
 
