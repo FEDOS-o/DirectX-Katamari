@@ -139,19 +139,35 @@ private:
         
                 float shadowFactor = 1.0f;
                 if (useShadow != 0) {
+                    // PCF с более мягкими тенями
                     float3 projCoords = input.shadowPos.xyz / input.shadowPos.w;
-            
+    
+                    // Преобразование из [-1,1] в [0,1]
                     projCoords.x = projCoords.x * 0.5f + 0.5f;
-                    projCoords.y = projCoords.y * -0.5f + 0.5f;
-            
-                    projCoords.z -= shadowBias;
-            
+                    projCoords.y = projCoords.y * -0.5f + 0.5f;  // Инвертируем Y для DirectX
+    
+                    // Применяем bias для избежания shadow acne
+                    float bias = shadowBias * tan(acos(saturate(diff)));
+                    bias = clamp(bias, 0.0f, 0.0005f);
+                    projCoords.z -= bias;
+    
+                    // PCF фильтрация: проверяем 4 сэмпла вокруг точки
                     if (projCoords.x >= 0.0f && projCoords.x <= 1.0f &&
                         projCoords.y >= 0.0f && projCoords.y <= 1.0f &&
                         projCoords.z <= 1.0f) {
-                
-                        shadowFactor = shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy, projCoords.z);
-                        shadowFactor = saturate(shadowFactor + 0.1f);
+        
+                        // Получаем размер текселя для PCF
+                        float2 texelSize = float2(1.0f / 4096.0f, 1.0f / 4096.0f);
+        
+                        // 4 сэмпла PCF (2x2)
+                        shadowFactor = 0.0f;
+                        shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(-0.5f, -0.5f) * texelSize, projCoords.z);
+                        shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(0.5f, -0.5f) * texelSize, projCoords.z);
+                        shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(-0.5f, 0.5f) * texelSize, projCoords.z);
+                        shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(0.5f, 0.5f) * texelSize, projCoords.z);
+                        shadowFactor *= 0.25f;  // Усредняем
+        
+                        shadowFactor = saturate(shadowFactor + 0.1f);  // Немного осветляем тени
                     }
                 }
         

@@ -19,37 +19,18 @@ private:
         Vector3 normal;
     };
 
-    // Структуры для константных буферов
-    struct MatrixBufferType {
-        Matrix world;
-        Matrix view;
-        Matrix projection;
-        Matrix lightView;
-        Matrix lightProjection;
-    };
-
-    struct LightPositionBufferType {
-        Vector3 lightPosition;
-        float padding;
-    };
-
-    struct LightBufferType {
-        Vector4 ambientColor;
-        Vector4 diffuseColor;
-        float bias;
-        float padding[3];
-    };
 
     ID3D11Buffer* vertexBuffer = nullptr;
     ID3D11Buffer* indexBuffer = nullptr;
     ID3D11InputLayout* inputLayout = nullptr;
     ID3D11VertexShader* vertexShader = nullptr;
     ID3D11PixelShader* pixelShader = nullptr;
-    ID3D11Buffer* matrixBuffer = nullptr;        // VS buffer 0
-    ID3D11Buffer* lightPositionBuffer = nullptr; // VS buffer 1
-    ID3D11Buffer* lightBuffer = nullptr;         // PS buffer 0
-    ID3D11SamplerState* samplerStateWrap = nullptr;
-    ID3D11SamplerState* samplerStateClamp = nullptr;
+    ID3D11Buffer* vsConstantBuffer = nullptr;     // VS buffer 0: VSConstantBuffer
+    ID3D11Buffer* shadowConstantBuffer = nullptr; // VS buffer 1: ShadowConstantBuffer
+    ID3D11Buffer* psConstantBuffer = nullptr;     // PS buffer 0: PSConstantBuffer
+    ID3D11Buffer* materialBuffer = nullptr;       // PS buffer 1: MaterialBuffer
+    ID3D11Buffer* lightBuffer = nullptr;          // PS buffer 2: DirectionalLightBuffer
+    ID3D11SamplerState* samplerState = nullptr;
     ID3D11ShaderResourceView* textureView = nullptr;
 
     UINT indexCount = 0;
@@ -139,127 +120,139 @@ private:
     void CreateShaders() {
         // Вершинный шейдер
         const char* vsCode = R"(
-            cbuffer MatrixBuffer : register(b0) {
-                matrix worldMatrix;
-                matrix viewMatrix;
-                matrix projectionMatrix;
-                matrix lightViewMatrix;
-                matrix lightProjectionMatrix;
-            }
-
-            cbuffer LightPositionBuffer : register(b1) {
-                float3 lightPosition;
-                float padding;
-            }
-
-            struct VSInput {
-                float3 position : POSITION;
-                float2 tex : TEXCOORD;
-                float3 normal : NORMAL;
-            };
-
-            struct VSOutput {
-                float4 position : SV_POSITION;
-                float2 tex : TEXCOORD0;
-                float3 normal : NORMAL;
-                float4 lightViewPosition : TEXCOORD1;
-                float3 lightPos : TEXCOORD2;
-            };
-
-            VSOutput VSMain(VSInput input) {
-                VSOutput output;
-                float4 worldPosition;
-                
-                float4 pos = float4(input.position, 1.0f);
-                
-                output.position = mul(pos, worldMatrix);
-                output.position = mul(output.position, viewMatrix);
-                output.position = mul(output.position, projectionMatrix);
-                
-                output.lightViewPosition = mul(pos, worldMatrix);
-                output.lightViewPosition = mul(output.lightViewPosition, lightViewMatrix);
-                output.lightViewPosition = mul(output.lightViewPosition, lightProjectionMatrix);
-                
-                output.tex = input.tex;
-                
-                output.normal = mul(input.normal, (float3x3)worldMatrix);
-                output.normal = normalize(output.normal);
-                
-                worldPosition = mul(pos, worldMatrix);
-                
-                output.lightPos = lightPosition.xyz - worldPosition.xyz;
-                output.lightPos = normalize(output.lightPos);
-                
-                return output;
-            }
-        )";
-
-        // Пиксельный шейдер
-        const char* psCode = R"(
-    Texture2D shaderTexture : register(t0);
-    Texture2D depthMapTexture : register(t1);
-    SamplerState SampleTypeClamp : register(s0);
-    SamplerState SampleTypeWrap : register(s1);
-
-    cbuffer LightBuffer : register(b0) {
-        float4 ambientColor;
-        float4 diffuseColor;
-        float bias;
-        float3 padding;
+    cbuffer VSConstantBuffer : register(b0) {
+        float4x4 world;
+        float4x4 view;
+        float4x4 projection;
+        float4x4 worldInvTranspose;
     }
+
+    cbuffer ShadowConstantBuffer : register(b1) {
+        float4x4 lightView;
+        float4x4 lightProjection;
+    }
+
+    struct VSInput {
+        float3 position : POSITION;
+        float2 texCoord : TEXCOORD;
+        float3 normal : NORMAL;
+    };
 
     struct VSOutput {
         float4 position : SV_POSITION;
-        float2 tex : TEXCOORD0;
-        float3 normal : NORMAL;
-        float4 lightViewPosition : TEXCOORD1;
-        float3 lightPos : TEXCOORD2;
+        float2 texCoord : TEXCOORD0;
+        float3 worldNormal : TEXCOORD1;
+        float3 worldPosition : TEXCOORD2;
+        float4 shadowPos : TEXCOORD3;
+    };
+
+    VSOutput VSMain(VSInput input) {
+        VSOutput output;
+        
+        float4 worldPos = mul(float4(input.position, 1.0f), world);
+        output.worldPosition = worldPos.xyz;
+        output.position = mul(worldPos, view);
+        output.position = mul(output.position, projection);
+        
+        output.worldNormal = normalize(mul(float4(input.normal, 0.0f), worldInvTranspose).xyz);
+        output.texCoord = input.texCoord;
+        
+        float4 lightViewPos = mul(worldPos, lightView);
+        output.shadowPos = mul(lightViewPos, lightProjection);
+        
+        return output;
+    }
+)";
+
+        // Пиксельный шейдер
+        const char* psCode = R"(
+    cbuffer PSConstantBuffer : register(b0) {
+        float4 cameraPosition;
+        float4 objectColor;
+        int useTexture;
+        int hasMaterial;
+        int useReflection;
+        int useShadow;
+        float shadowBias;
+        float padding;
+    }
+
+    cbuffer MaterialBuffer : register(b1) {
+        float4 materialAmbient;
+        float4 materialDiffuse;
+        float4 materialSpecular;
+        float shininess;
+        float3 materialPadding;
+    }
+
+    cbuffer DirectionalLightBuffer : register(b2) {
+        float4 lightAmbient;
+        float4 lightDiffuse;
+        float4 lightSpecular;
+        float3 lightDirection;
+        float lightPadding;
+    }
+
+    Texture2D objTexture : register(t0);
+    Texture2D shadowMap : register(t2);
+    SamplerState objSampler : register(s0);
+    SamplerComparisonState shadowSampler : register(s1);
+
+    struct VSOutput {
+        float4 position : SV_POSITION;
+        float2 texCoord : TEXCOORD0;
+        float3 worldNormal : TEXCOORD1;
+        float3 worldPosition : TEXCOORD2;
+        float4 shadowPos : TEXCOORD3;
     };
 
     float4 PSMain(VSOutput input) : SV_TARGET {
-        float4 color = ambientColor;
-        float2 projectTexCoord;
-        float depthValue;
-        float lightDepthValue;
-        float lightIntensity;
-        float4 textureColor;
+        float3 normal = normalize(input.worldNormal);
+        float3 lightDir = normalize(-lightDirection);
+        float3 viewDir = normalize(cameraPosition.xyz - input.worldPosition);
+        float3 reflectLightDir = reflect(-lightDir, normal);
         
-        projectTexCoord.x = input.lightViewPosition.x / input.lightViewPosition.w / 2.0f + 0.5f;
-        projectTexCoord.y = -input.lightViewPosition.y / input.lightViewPosition.w / 2.0f + 0.5f;
+        float3 ambient = lightAmbient.rgb * materialAmbient.rgb;
+        float diff = max(dot(normal, lightDir), 0.0f);
+        float3 diffuse = lightDiffuse.rgb * diff * materialDiffuse.rgb;
+        float spec = pow(max(dot(viewDir, reflectLightDir), 0.0f), shininess);
+        float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
         
-        // Вычисляем глубину света (расстояние от источника света)
-        lightDepthValue = input.lightViewPosition.z / input.lightViewPosition.w;
-        
-        // Проверяем, что в пределах shadow map
-        if (projectTexCoord.x >= 0.0f && projectTexCoord.x <= 1.0f &&
-            projectTexCoord.y >= 0.0f && projectTexCoord.y <= 1.0f) {
+        float shadowFactor = 1.0f;
+        if (useShadow != 0) {
+            float3 projCoords = input.shadowPos.xyz / input.shadowPos.w;
             
-            // Получаем глубину из shadow map
-            depthValue = depthMapTexture.Sample(SampleTypeClamp, projectTexCoord).r;
+            projCoords.x = projCoords.x * 0.5f + 0.5f;
+            projCoords.y = projCoords.y * -0.5f + 0.5f;  // Инвертируем Y для DirectX
             
-            // Сравниваем с учетом bias
-            // ВАЖНО: lightDepthValue должно быть МЕНЬШЕ depthValue для освещения
-            // bias вычитается из lightDepthValue, делая его "ближе" к свету
-            if (lightDepthValue - bias < depthValue) {
-                lightIntensity = saturate(dot(input.normal, input.lightPos));
-                if (lightIntensity > 0.0f) {
-                    color += (diffuseColor * lightIntensity);
-                    color = saturate(color);
-                }
-            }
-        } else {
-            // За пределами shadow map - считаем освещенным
-            lightIntensity = saturate(dot(input.normal, input.lightPos));
-            if (lightIntensity > 0.0f) {
-                color += (diffuseColor * lightIntensity);
-                color = saturate(color);
+            // Применяем bias для избежания shadow acne
+            float bias = shadowBias * tan(acos(saturate(diff)));
+            bias = clamp(bias, 0.0f, 0.0005f);
+            projCoords.z -= bias;
+            
+            if (projCoords.x >= 0.0f && projCoords.x <= 1.0f &&
+                projCoords.y >= 0.0f && projCoords.y <= 1.0f) {
+                
+                // PCF фильтрация: 4 сэмпла для мягких теней
+                float2 texelSize = float2(1.0f / 4096.0f, 1.0f / 4096.0f);
+                
+                shadowFactor = 0.0f;
+                shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(-0.5f, -0.5f) * texelSize, projCoords.z);
+                shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(0.5f, -0.5f) * texelSize, projCoords.z);
+                shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(-0.5f, 0.5f) * texelSize, projCoords.z);
+                shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, projCoords.xy + float2(0.5f, 0.5f) * texelSize, projCoords.z);
+                shadowFactor *= 0.25f;
+                
+                shadowFactor = saturate(shadowFactor);
             }
         }
         
-        textureColor = shaderTexture.Sample(SampleTypeWrap, input.tex);
-        color = color * textureColor;
+        float3 result = ambient + (diffuse + specular) * shadowFactor;
         
-        return color;
+        float4 texColor = objTexture.Sample(objSampler, input.texCoord);
+        result *= texColor.rgb;
+        
+        return float4(result, 1.0f);
     }
 )";
 
@@ -293,27 +286,32 @@ private:
         desc.Usage = D3D11_USAGE_DEFAULT;
         desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 
-        desc.ByteWidth = sizeof(MatrixBufferType);
-        game->Device->CreateBuffer(&desc, nullptr, &matrixBuffer);
+        desc.ByteWidth = sizeof(VSConstantBuffer);
+        game->Device->CreateBuffer(&desc, nullptr, &vsConstantBuffer);
 
-        desc.ByteWidth = sizeof(LightPositionBufferType);
-        game->Device->CreateBuffer(&desc, nullptr, &lightPositionBuffer);
+        desc.ByteWidth = sizeof(ShadowConstantBuffer);
+        game->Device->CreateBuffer(&desc, nullptr, &shadowConstantBuffer);
 
-        desc.ByteWidth = sizeof(LightBufferType);
+        // PS буфер с выравниванием
+        UINT psBufferSize = sizeof(PSConstantBuffer);
+        UINT alignedSize = (psBufferSize + 15) & ~15;
+        desc.ByteWidth = alignedSize;
+        game->Device->CreateBuffer(&desc, nullptr, &psConstantBuffer);
+
+        desc.ByteWidth = sizeof(MaterialBuffer);
+        game->Device->CreateBuffer(&desc, nullptr, &materialBuffer);
+
+        desc.ByteWidth = sizeof(DirectionalLightBuffer);
         game->Device->CreateBuffer(&desc, nullptr, &lightBuffer);
 
+        // Сэмплер
         D3D11_SAMPLER_DESC samplerDesc = {};
         samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-        samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-        samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-        samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-        game->Device->CreateSamplerState(&samplerDesc, &samplerStateClamp);
-
         samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
         samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
         samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-        game->Device->CreateSamplerState(&samplerDesc, &samplerStateWrap);
+        samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
+        game->Device->CreateSamplerState(&samplerDesc, &samplerState);
     }
 
 public:
@@ -343,39 +341,55 @@ public:
         if (!initialized || !game || !game->Context || !game->Camera) return;
         if (!vertexBuffer || !indexBuffer) return;
 
-        // Заполняем матричный буфер
-        MatrixBufferType matBufferData;
+        // VS буфер
+        VSConstantBuffer vsCB;
         Matrix world = Matrix::Identity;
-        matBufferData.world = world.Transpose();
-        matBufferData.view = game->Camera->GetViewMatrix().Transpose();
-        matBufferData.projection = game->Camera->GetProjectionMatrix().Transpose();
-        matBufferData.lightView = game->GetLightViewMatrix().Transpose();
-        matBufferData.lightProjection = game->GetLightProjectionMatrix().Transpose();
-        game->Context->UpdateSubresource(matrixBuffer, 0, nullptr, &matBufferData, 0, 0);
+        vsCB.world = world.Transpose();
+        vsCB.view = game->Camera->GetViewMatrix().Transpose();
+        vsCB.projection = game->Camera->GetProjectionMatrix().Transpose();
+        Matrix worldInv = world;
+        worldInv.Invert();
+        vsCB.worldInvTranspose = worldInv.Transpose();
+        game->Context->UpdateSubresource(vsConstantBuffer, 0, nullptr, &vsCB, 0, 0);
 
-        // Заполняем буфер позиции света
-        LightPositionBufferType lightPosData;
-        Vector3 lightPos = Vector3(-20.0f, 30.0f, -20.0f);
-        lightPosData.lightPosition = lightPos;
-        lightPosData.padding = 0.0f;
-        game->Context->UpdateSubresource(lightPositionBuffer, 0, nullptr, &lightPosData, 0, 0);
+        // Shadow буфер
+        ShadowConstantBuffer shadowCB;
+        shadowCB.lightView = game->GetLightViewMatrix().Transpose();
+        shadowCB.lightProjection = game->GetLightProjectionMatrix().Transpose();
+        game->Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
 
-        // Заполняем буфер света для PS - ЭКСПЕРИМЕНТИРУЕМ С BIAS
-        LightBufferType lightPSData;
-        lightPSData.ambientColor = Vector4(0.3f, 0.3f, 0.3f, 1.0f);
-        lightPSData.diffuseColor = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+        // PS буфер
+        PSConstantBuffer psCB;
+        Vector3 camPos = game->Camera->GetPosition();
+        psCB.cameraPosition = DirectX::XMFLOAT4(camPos.x, camPos.y, camPos.z, 1.0f);
+        psCB.objectColor = DirectX::XMFLOAT4(1, 1, 1, 1);
+        psCB.useTexture = textureLoaded ? 1 : 0;
+        psCB.hasMaterial = 0;
+        psCB.useReflection = 0;
+        psCB.useShadow = (game->ShadowMapSRV != nullptr) ? 1 : 0;
+        psCB.shadowBias = 0.000005f;
+        psCB.padding = 0.0f;
+        game->Context->UpdateSubresource(psConstantBuffer, 0, nullptr, &psCB, 0, 0);
 
-        // ПРОБУЕМ РАЗНЫЕ ЗНАЧЕНИЯ:
-        // 0.0001f - слишком мало, тень "прилипает"
-        // 0.001f  - нормально для небольших сцен
-        // 0.01f   - много, тень "уплывает"
-        // 0.05f   - очень много, тень отделяется от объекта
-        lightPSData.bias = 0.005f;  // Начните с этого
+        // Material буфер
+        MaterialBuffer matBuffer;
+        matBuffer.ambient = Vector4(0.2f, 0.2f, 0.2f, 1.0f);
+        matBuffer.diffuse = Vector4(1.0f, 1.0f, 1.0f, 1.0f);
+        matBuffer.specular = Vector4(0.1f, 0.1f, 0.1f, 1.0f);
+        matBuffer.shininess = 32.0f;
+        matBuffer.materialPadding[0] = matBuffer.materialPadding[1] = matBuffer.materialPadding[2] = 0.0f;
+        game->Context->UpdateSubresource(materialBuffer, 0, nullptr, &matBuffer, 0, 0);
 
-        lightPSData.padding[0] = lightPSData.padding[1] = lightPSData.padding[2] = 0.0f;
-        game->Context->UpdateSubresource(lightBuffer, 0, nullptr, &lightPSData, 0, 0);
+        // Light буфер
+        DirectionalLightBuffer lightBuf;
+        lightBuf.ambient = game->SunLight.ambient;
+        lightBuf.diffuse = game->SunLight.diffuse;
+        lightBuf.specular = game->SunLight.specular;
+        lightBuf.direction = game->SunLight.direction;
+        lightBuf.padding = 0.0f;
+        game->Context->UpdateSubresource(lightBuffer, 0, nullptr, &lightBuf, 0, 0);
 
-        // Устанавливаем вершинный и индексный буферы
+        // Устанавливаем геометрию
         UINT stride = sizeof(Vertex);
         UINT offset = 0;
         game->Context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
@@ -383,24 +397,26 @@ public:
         game->Context->IASetInputLayout(inputLayout);
         game->Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-        // Устанавливаем шейдеры и константные буферы
+        // Устанавливаем шейдеры и буферы
         game->Context->VSSetShader(vertexShader, nullptr, 0);
-        game->Context->VSSetConstantBuffers(0, 1, &matrixBuffer);
-        game->Context->VSSetConstantBuffers(1, 1, &lightPositionBuffer);
+        game->Context->VSSetConstantBuffers(0, 1, &vsConstantBuffer);
+        game->Context->VSSetConstantBuffers(1, 1, &shadowConstantBuffer);
 
         game->Context->PSSetShader(pixelShader, nullptr, 0);
-        game->Context->PSSetConstantBuffers(0, 1, &lightBuffer);
-        game->Context->PSSetSamplers(0, 1, &samplerStateClamp);
-        game->Context->PSSetSamplers(1, 1, &samplerStateWrap);
+        game->Context->PSSetConstantBuffers(0, 1, &psConstantBuffer);
+        game->Context->PSSetConstantBuffers(1, 1, &materialBuffer);
+        game->Context->PSSetConstantBuffers(2, 1, &lightBuffer);
+        game->Context->PSSetSamplers(0, 1, &samplerState);
 
         // Устанавливаем текстуры
         if (textureLoaded && textureView) {
             game->Context->PSSetShaderResources(0, 1, &textureView);
         }
 
-        // Устанавливаем shadow map
+        // Устанавливаем shadow map + shadow sampler
         if (game->ShadowMapSRV) {
-            game->Context->PSSetShaderResources(1, 1, &game->ShadowMapSRV);
+            game->Context->PSSetShaderResources(2, 1, &game->ShadowMapSRV);
+            game->Context->PSSetSamplers(1, 1, &game->ShadowSampler);
         }
 
         // Рисуем
@@ -427,11 +443,12 @@ public:
         if (inputLayout) { inputLayout->Release(); inputLayout = nullptr; }
         if (vertexShader) { vertexShader->Release(); vertexShader = nullptr; }
         if (pixelShader) { pixelShader->Release(); pixelShader = nullptr; }
-        if (matrixBuffer) { matrixBuffer->Release(); matrixBuffer = nullptr; }
-        if (lightPositionBuffer) { lightPositionBuffer->Release(); lightPositionBuffer = nullptr; }
+        if (vsConstantBuffer) { vsConstantBuffer->Release(); vsConstantBuffer = nullptr; }
+        if (shadowConstantBuffer) { shadowConstantBuffer->Release(); shadowConstantBuffer = nullptr; }
+        if (psConstantBuffer) { psConstantBuffer->Release(); psConstantBuffer = nullptr; }
+        if (materialBuffer) { materialBuffer->Release(); materialBuffer = nullptr; }
         if (lightBuffer) { lightBuffer->Release(); lightBuffer = nullptr; }
-        if (samplerStateWrap) { samplerStateWrap->Release(); samplerStateWrap = nullptr; }
-        if (samplerStateClamp) { samplerStateClamp->Release(); samplerStateClamp = nullptr; }
+        if (samplerState) { samplerState->Release(); samplerState = nullptr; }
         if (textureView) { textureView->Release(); textureView = nullptr; }
         initialized = false;
         textureLoaded = false;
