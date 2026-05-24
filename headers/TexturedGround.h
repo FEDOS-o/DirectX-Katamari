@@ -17,9 +17,9 @@ class TexturedGround : public GameComponent {
 private:
     struct Vertex {
         Vector3 position;
+        Vector4 color;
         Vector2 texCoord;
         Vector3 normal;
-        Vector4 color;
     };
 
     ID3D11Buffer* vertexBuffer = nullptr;

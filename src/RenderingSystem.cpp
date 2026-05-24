@@ -132,6 +132,8 @@ HRESULT RenderingSystem::CreateShaders() {
     // ========================================
     // 3. GEOMETRY PASS PIXEL SHADER (с поддержкой текстуры)
     // ========================================
+    // В CreateShaders(), geometryPSCode должен быть:
+    // В CreateShaders(), geometryPSCode должен быть:
     const char* geometryPSCode = R"(
         struct VSOutput {
             float4 position : SV_POSITION;
@@ -153,25 +155,23 @@ HRESULT RenderingSystem::CreateShaders() {
 
         GBufferOutput PSMain(VSOutput input) {
             GBufferOutput output;
-        
-            // Получаем цвет из текстуры
+    
             float4 texColor = objTexture.Sample(objSampler, input.texCoord);
-            
-            // Используем текстуру, если она есть, иначе используем вершинный цвет
+        
+            // Если текстура есть - используем её
+            // Если текстура черная (не загружена) - используем белый цвет
             float4 finalColor;
             if (texColor.r < 0.01f && texColor.g < 0.01f && texColor.b < 0.01f) {
-                // Если текстура черная (возможно не загружена), используем вершинный цвет
-                finalColor = input.color;
+                finalColor = float4(1, 1, 1, 1);
             } else {
-                // Иначе используем текстуру, умноженную на вершинный цвет
-                finalColor = input.color * texColor;
+                finalColor = texColor;
             }
-            
+        
             output.diffuse = finalColor;
             output.normal = float4(normalize(input.worldNormal), 1.0f);
             output.worldPos = float4(input.worldPosition, 1.0f);
             output.specular = float4(0.5f, 0.5f, 0.5f, 32.0f / 255.0f);
-        
+    
             return output;
         }
     )";
@@ -184,6 +184,7 @@ HRESULT RenderingSystem::CreateShaders() {
     // ========================================
     // 4. DIRECTIONAL LIGHT PIXEL SHADER
     // ========================================
+    // В CreateShaders(), замените directionalPSCode на этот:
     const char* directionalPSCode = R"(
         struct VSOutput {
             float4 position : SV_POSITION;
@@ -198,25 +199,61 @@ HRESULT RenderingSystem::CreateShaders() {
             float padding;
         }
 
+        cbuffer CameraBuffer : register(b1) {
+            float3 cameraPosition;
+            float cameraPadding;
+        }
+
         Texture2D diffuseTex  : register(t0);
         Texture2D normalTex   : register(t1);
+        Texture2D worldPosTex : register(t2);
+        Texture2D specularTex : register(t3);
         SamplerState linearSampler : register(s0);
 
         float4 PSMain(VSOutput input) : SV_TARGET {
+            // Сэмплируем данные из GBuffer
             float4 albedo = diffuseTex.Sample(linearSampler, input.texCoord);
         
             if (albedo.r + albedo.g + albedo.b < 0.01f) {
                 return float4(0, 0, 0, 0);
             }
         
-            float3 normal = normalize(normalTex.Sample(linearSampler, input.texCoord).xyz);
-            float3 lightDir = normalize(-lightDirection);
-            float diff = max(dot(normal, lightDir), 0.0f);
+            // Нормали из GBuffer (хранятся в [0,1], преобразуем в [-1,1])
+            float4 normalData = normalTex.Sample(linearSampler, input.texCoord);
+            float3 normal = normalize(normalData.xyz * 2.0f - 1.0f);
         
-            float3 ambient = lightAmbient.rgb * albedo.rgb;
+            // Позиция в мире
+            float4 worldPosData = worldPosTex.Sample(linearSampler, input.texCoord);
+            float3 worldPosition = worldPosData.xyz;
+        
+            // Specular данные
+            float4 specularData = specularTex.Sample(linearSampler, input.texCoord);
+            float3 specularColor = specularData.rgb;
+            float shininess = max(specularData.a * 255.0f, 1.0f);
+        
+            // Направления
+            float3 lightDir = normalize(-lightDirection);
+            float3 viewDir = normalize(cameraPosition - worldPosition);
+        
+            // Diffuse
+            float diff = max(dot(normal, lightDir), 0.0f);
             float3 diffuse = lightDiffuse.rgb * diff * albedo.rgb;
         
-            return float4(ambient + diffuse, 1.0f);
+            // BLINN-PHONG SPECULAR (более стабильный)
+            float3 halfwayDir = normalize(lightDir + viewDir);
+            float spec = pow(max(dot(normal, halfwayDir), 0.0f), shininess);
+            float3 specular = lightSpecular.rgb * spec * specularColor;
+        
+            // Для отладки - можно визуализировать specular отдельно
+            // return float4(specular, 1.0f);
+        
+            // Ambient
+            float3 ambient = lightAmbient.rgb * albedo.rgb;
+        
+            // Результат
+            float3 result = ambient + diffuse + specular;
+        
+            return float4(result, 1.0f);
         }
     )";
 
@@ -525,6 +562,7 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
     context->PSSetShaderResources(0, 4, textures);
     context->PSSetSamplers(0, 1, &linearSampler);
 
+    // Directional Light buffer
     struct DirLightBuffer {
         Vector4 ambient;
         Vector4 diffuse;
@@ -542,6 +580,7 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
     context->UpdateSubresource(directionalLightBuffer, 0, nullptr, &lightData, 0, 0);
     context->PSSetConstantBuffers(0, 1, &directionalLightBuffer);
 
+    // Camera buffer для specular
     struct CamBuffer {
         Vector3 position;
         float padding;

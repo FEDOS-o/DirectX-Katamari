@@ -33,11 +33,12 @@ int main() {
     //Skybox* skybox = new Skybox(&game, "models/cubemap.png");
     //game.components.push_back(skybox);
 
+    // В main(), после создания game:
     game.SunLight.direction = Vector3(0.5f, -1.0f, 0.3f);
     game.SunLight.direction.Normalize();
-    game.SunLight.ambient = Vector4(0.2f, 0.2f, 0.2f, 1.0f);   // Уменьшено
-    game.SunLight.diffuse = Vector4(0.8f, 0.8f, 0.8f, 1.0f);   // Уменьшено
-    game.SunLight.specular = Vector4(0.3f, 0.3f, 0.3f, 1.0f);   // Уменьшено
+    game.SunLight.ambient = Vector4(0.2f, 0.2f, 0.2f, 1.0f);
+    game.SunLight.diffuse = Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+    game.SunLight.specular = Vector4(1.0f, 1.0f, 1.0f, 1.0f);  // Яркий specular
 
     TexturedGround* ground = new TexturedGround(&game, 100.0f, 100, "models/wood.jpg");
     game.components.push_back(ground);

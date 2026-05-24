@@ -737,13 +737,13 @@ float Game::GetCascadeSplitDepth(UINT cascade) const {
 }
 
 void Game::UpdateLight(float deltaTime) {
-    static float lightAngle = 0.0f;
+    /*static float lightAngle = 0.0f;
     lightAngle += deltaTime * 0.2f;
 
     SunLight.direction.x = sin(lightAngle) * 0.5f;
     SunLight.direction.y = -1.0f;
     SunLight.direction.z = cos(lightAngle) * 0.5f;
-    SunLight.direction.Normalize();
+    SunLight.direction.Normalize();*/
 }
 
 void Game::RenderSceneToShadowMap() {

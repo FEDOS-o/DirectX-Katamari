@@ -69,4 +69,9 @@ private:
     HRESULT CreateShaders();
     HRESULT CreateBuffers();
     HRESULT CreateStates();
+
+public:
+    // Добавьте в public секцию:
+    const Matrix& GetViewMatrix() const { return currentView; }
+    const Matrix& GetProjectionMatrix() const { return currentProjection; }
 };

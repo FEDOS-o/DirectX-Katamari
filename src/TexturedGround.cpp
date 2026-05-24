@@ -99,7 +99,9 @@ void TexturedGround::CreateGeometry() {
 }
 
 void TexturedGround::CreateShaders() {
-    // Vertex Shader
+    // СОЗДАЁМ ТОЛЬКО VERTEX SHADER для geometry pass (совместимый с тем, что использует RenderingSystem)
+    // Pixel шейдер будет использоваться из RenderingSystem
+
     const char* vsCode = R"(
         cbuffer VSConstantBuffer : register(b0) {
             float4x4 world;
@@ -110,104 +112,56 @@ void TexturedGround::CreateShaders() {
 
         struct VSInput {
             float3 position : POSITION;
+            float4 color : COLOR;
             float2 texCoord : TEXCOORD;
             float3 normal : NORMAL;
-            float4 color : COLOR;
         };
 
         struct VSOutput {
             float4 position : SV_POSITION;
+            float4 color : COLOR;
             float2 texCoord : TEXCOORD0;
             float3 worldNormal : TEXCOORD1;
             float3 worldPosition : TEXCOORD2;
-            float4 color : COLOR;
         };
 
         VSOutput VSMain(VSInput input) {
             VSOutput output;
+            
             float4 worldPos = mul(float4(input.position, 1.0f), world);
             output.worldPosition = worldPos.xyz;
             output.position = mul(worldPos, view);
             output.position = mul(output.position, projection);
+            
             output.worldNormal = normalize(mul(float4(input.normal, 0.0f), worldInvTranspose).xyz);
-            output.texCoord = input.texCoord;
             output.color = input.color;
-            return output;
-        }
-    )";
-
-    // Pixel Shader
-    const char* psCode = R"(
-        struct VSOutput {
-            float4 position : SV_POSITION;
-            float2 texCoord : TEXCOORD0;
-            float3 worldNormal : TEXCOORD1;
-            float3 worldPosition : TEXCOORD2;
-            float4 color : COLOR;
-        };
-
-        struct GBufferOutput {
-            float4 diffuse  : SV_TARGET0;
-            float4 normal   : SV_TARGET1;
-            float4 worldPos : SV_TARGET2;
-            float4 specular : SV_TARGET3;
-        };
-
-        Texture2D objTexture : register(t0);
-        SamplerState objSampler : register(s0);
-
-        GBufferOutput PSMain(VSOutput input) {
-            GBufferOutput output;
-            
-            float4 texColor = objTexture.Sample(objSampler, input.texCoord);
-            
-            // Если текстура есть - используем её, иначе используем вершинный цвет
-            if (texColor.r + texColor.g + texColor.b < 0.01f) {
-                texColor = input.color;
-            }
-            
-            output.diffuse = texColor;
-            output.normal = float4(normalize(input.worldNormal), 1.0f);
-            output.worldPos = float4(input.worldPosition, 1.0f);
-            output.specular = float4(0.5f, 0.5f, 0.5f, 32.0f / 255.0f);
+            output.texCoord = input.texCoord;
             
             return output;
         }
     )";
 
     ID3DBlob* vsBlob = CompileShader(vsCode, "vs_5_0", "VSMain");
-    ID3DBlob* psBlob = CompileShader(psCode, "ps_5_0", "PSMain");
-
-    if (!vsBlob || !psBlob) {
-        if (vsBlob) vsBlob->Release();
-        if (psBlob) psBlob->Release();
-        return;
-    }
+    if (!vsBlob) return;
 
     game->Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader);
-    game->Device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader);
+    vsBlob->Release();
 
+    // Создаём input layout
     D3D11_INPUT_ELEMENT_DESC elements[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0},
-        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0}
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 36, D3D11_INPUT_PER_VERTEX_DATA, 0}
     };
-
     game->Device->CreateInputLayout(elements, 4, vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), &inputLayout);
 
-    vsBlob->Release();
-    psBlob->Release();
+    // Pixel шейдер НЕ СОЗДАЁМ - будем использовать тот, что в RenderingSystem
+    pixelShader = nullptr;
 }
 
 void TexturedGround::CreateBuffers() {
-    D3D11_BUFFER_DESC desc = {};
-    desc.Usage = D3D11_USAGE_DEFAULT;
-    desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-
-    desc.ByteWidth = sizeof(VSConstantBuffer);
-    game->Device->CreateBuffer(&desc, nullptr, &vsConstantBuffer);
-
+    // Создаём сэмплер для текстуры
     D3D11_SAMPLER_DESC samplerDesc = {};
     samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
@@ -215,6 +169,13 @@ void TexturedGround::CreateBuffers() {
     samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
     samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
     game->Device->CreateSamplerState(&samplerDesc, &samplerState);
+
+    // Константный буфер для VS
+    D3D11_BUFFER_DESC desc = {};
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    desc.ByteWidth = sizeof(VSConstantBuffer);
+    game->Device->CreateBuffer(&desc, nullptr, &vsConstantBuffer);
 }
 
 void TexturedGround::Initialize() {
@@ -250,48 +211,48 @@ void TexturedGround::DrawGeometry(RenderingSystem* rs) {
 
     std::cout << "TexturedGround::DrawGeometry called" << std::endl;
 
-    // Сохраняем текущие шейдеры и ресурсы
-    ID3D11PixelShader* oldPS = nullptr;
-    ID3D11VertexShader* oldVS = nullptr;
-    ID3D11SamplerState* oldSampler = nullptr;
-    ID3D11ShaderResourceView* oldSRV = nullptr;
+    // НЕ устанавливаем свой vertex shader!
+    // Используем тот, что уже установлен в BeginGeometryPass
 
-    game->Context->PSGetShader(&oldPS, nullptr, nullptr);
-    game->Context->VSGetShader(&oldVS, nullptr, nullptr);
-    game->Context->PSGetSamplers(0, 1, &oldSampler);
-    game->Context->PSGetShaderResources(0, 1, &oldSRV);
-
-    // Устанавливаем текстуру и сэмплер
+    // Просто устанавливаем текстуру и сэмплер
     if (textureLoaded && textureView) {
         game->Context->PSSetShaderResources(0, 1, &textureView);
         game->Context->PSSetSamplers(0, 1, &samplerState);
-        std::cout << "Ground texture set in DrawGeometry, textureView=" << textureView << std::endl;
-    }
-    else {
-        std::cout << "Ground texture NOT set in DrawGeometry" << std::endl;
+        std::cout << "Ground texture set, textureView=" << textureView << std::endl;
     }
 
+    // Обновляем константный буфер с мировыми матрицами
+    VSConstantBuffer cb;
     Matrix world = Matrix::Identity;
+    cb.world = world.Transpose();
+    cb.view = rs->GetViewMatrix().Transpose();
+    cb.projection = rs->GetProjectionMatrix().Transpose();
 
-    // Рисуем через RenderingSystem
-    rs->DrawMeshToGBuffer(game->Context,
-        vertexBuffer,
-        indexBuffer,
-        indexCount,
-        world);
+    Matrix worldInv = world;
+    worldInv.Invert();
+    cb.worldInvTranspose = worldInv.Transpose();
 
-    // Восстанавливаем
-    game->Context->PSSetShader(oldPS, nullptr, 0);
-    game->Context->VSSetShader(oldVS, nullptr, 0);
-    if (oldSampler) game->Context->PSSetSamplers(0, 1, &oldSampler);
-    if (oldSRV) game->Context->PSSetShaderResources(0, 1, &oldSRV);
+    // Обновляем буфер, который использует RenderingSystem
+    ID3D11Buffer* vsBuffer = nullptr;
+    game->Context->VSGetConstantBuffers(0, 1, &vsBuffer);
+    if (vsBuffer) {
+        game->Context->UpdateSubresource(vsBuffer, 0, nullptr, &cb, 0, 0);
+        vsBuffer->Release();
+    }
 
-    if (oldPS) oldPS->Release();
-    if (oldVS) oldVS->Release();
-    if (oldSampler) oldSampler->Release();
-    if (oldSRV) oldSRV->Release();
+    // Рисуем
+    UINT stride = sizeof(Vertex);
+    UINT offset = 0;
+    game->Context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
+    game->Context->IASetIndexBuffer(indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+    game->Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    std::cout << "TexturedGround::DrawGeometry completed" << std::endl;
+    game->Context->DrawIndexed(indexCount, 0, 0);
+    std::cout << "Ground drawn with " << indexCount << " indices" << std::endl;
+
+    // Очищаем текстуру
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    game->Context->PSSetShaderResources(0, 1, &nullSRV);
 }
 
 void TexturedGround::DrawShadow() {
