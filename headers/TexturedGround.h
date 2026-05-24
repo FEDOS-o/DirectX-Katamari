@@ -403,7 +403,7 @@ public:
         psCB.hasMaterial = 0;
         psCB.useReflection = 0;
         psCB.useShadow = (game->ShadowMapSRV != nullptr) ? 1 : 0;
-        psCB.shadowBias = 0.000005f;
+        psCB.shadowBias = 0.0000003f;
         psCB.cascadeSplit0 = game->GetCascadeSplitDepth(0);
         psCB.cascadeSplit1 = game->GetCascadeSplitDepth(1);
         psCB.cascadeSplit2 = game->GetCascadeSplitDepth(2);
