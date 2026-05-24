@@ -1,3 +1,4 @@
+// Game.h (исправленный)
 #pragma once
 
 #include <windows.h>
@@ -13,6 +14,8 @@
 #include "InputDevice.h"
 #include "Lighting.h"
 #include "Core.h"
+#include "GBuffer.h"
+#include "RenderingSystem.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -36,7 +39,15 @@ private:
     ID3D11Texture2D* BackBuffer = nullptr;
     ID3D11UnorderedAccessView* RenderSRV = nullptr;
     ID3D11Debug* DebugAnnotation = nullptr;
+
+    // Shadow map resources (private, но есть public геттеры если нужны)
+    ID3D11Texture2D* ShadowMapTexture = nullptr;
+    ID3D11DepthStencilView* ShadowMapDSV = nullptr;
+
 public:
+    // Делаем public для доступа из RenderingSystem
+    ID3D11ShaderResourceView* ShadowMapSRV = nullptr;
+
     ID3D11RasterizerState* RasterizerState = nullptr;
 
     ID3D11Texture2D* DepthStencilBuffer = nullptr;
@@ -67,16 +78,13 @@ public:
     DirectionalLight SunLight;
     ID3D11ShaderResourceView* SkyboxTexture = nullptr;
 
-    void UpdateLight(float deltaTime);
+    // Deferred Rendering System
+    RenderingSystem* renderingSystem = nullptr;
 
-    // ===== СТАРЫЕ РЕСУРСЫ (оставляем для совместимости) =====
-    ID3D11Texture2D* ShadowMapTexture = nullptr;      // Будет использоваться как текстурный массив
-    ID3D11DepthStencilView* ShadowMapDSV = nullptr;   // Старая одиночная DSV (не используется)
-    ID3D11ShaderResourceView* ShadowMapSRV = nullptr; // Старая одиночная SRV (не используется)
+    // Shadow resources
     ID3D11SamplerState* ShadowSampler = nullptr;
     ID3D11Buffer* shadowConstantBuffer = nullptr;
-
-    static constexpr UINT SHADOW_MAP_SIZE = 4096;  // Пока оставляем 4096 для совместимости
+    static constexpr UINT SHADOW_MAP_SIZE = 4096;
     float ShadowBias = 0.00005f;
     float ShadowBiasSlope = 2.0f;
 
@@ -84,18 +92,19 @@ public:
     Vector3 LightTarget = Vector3(0, 0, 0);
     float LightDistance = 50.0f;
 
-    // Старые матрицы (для обратной совместимости)
     Matrix lightViewMatrix;
     Matrix lightProjectionMatrix;
 
-    // Старые методы
+    // Методы
+    void UpdateLight(float deltaTime);  // ДОБАВЛЯЕМ ОБЪЯВЛЕНИЕ
+
     HRESULT CreateShadowMapResources();
     void PrepareShadowPass();
     void SetShadowForRender();
     Matrix GetLightViewMatrix() const;
     Matrix GetLightProjectionMatrix() const;
 
-    // ===== НОВЫЕ CSM РЕСУРСЫ (пока не используются) =====
+    // CSM resources
     static constexpr UINT CASCADE_COUNT = 4;
     static constexpr UINT CSM_SHADOW_MAP_SIZE = 2048;
 
@@ -118,7 +127,6 @@ public:
     };
     ID3D11Buffer* csmConstantBuffer = nullptr;
 
-    // Новые методы CSM (пока не вызываются)
     HRESULT CreateCSMResources();
     void UpdateCascades();
     void PrepareCSMShadowPass(UINT cascade);
@@ -126,13 +134,12 @@ public:
     Matrix GetCascadeLightProjectionMatrix(UINT cascade) const;
     float GetCascadeSplitDepth(UINT cascade) const;
 
-    // Теневые шейдеры
     ID3D11VertexShader* ShadowVertexShader = nullptr;
     ID3D11PixelShader* ShadowPixelShader = nullptr;
     ID3D11InputLayout* ShadowInputLayout = nullptr;
 
     HRESULT CreateShadowShaders();
-    void RenderSceneToShadowMap();
+    void RenderSceneToShadowMap();  // ДОБАВЛЯЕМ ОБЪЯВЛЕНИЕ
 
     Render::ShadowRenderer* ShadowRendererComp = nullptr;
     ID3D11Buffer* shadowWorldConstantBuffer = nullptr;
@@ -159,4 +166,4 @@ public:
     void DestroyResources();
     void Run();
     void SwitchCamera();
-};  
+};

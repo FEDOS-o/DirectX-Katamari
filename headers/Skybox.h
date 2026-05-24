@@ -1,7 +1,9 @@
+// Skybox.h
 #pragma once
 #include "GameComponent.h"
 #include "Camera.h"
 #include "TextureLoader.h"
+#include "RenderingSystem.h"
 #include <SimpleMath.h>
 #include <string>
 
@@ -28,8 +30,6 @@ private:
     bool initialized = false;
     std::string texturePath;
 
-#pragma warning(push)
-#pragma warning(disable: 4100) // unreferenced formal parameter
     ID3DBlob* CompileShader(const char* code, const char* target, const char* entryPoint) {
         ID3DBlob* blob = nullptr;
         ID3DBlob* error = nullptr;
@@ -37,12 +37,13 @@ private:
             entryPoint, target, D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION, 0, &blob, &error);
 
         if (FAILED(hr) && error) {
+            OutputDebugStringA((char*)error->GetBufferPointer());
             error->Release();
             return nullptr;
         }
+        if (error) error->Release();
         return blob;
     }
-#pragma warning(pop)
 
     void CreateCube() {
         const float SIZE = 100000.0f;
@@ -154,11 +155,27 @@ private:
 
 public:
     Skybox(Game* game, const std::string& textureFile = "models/cubemap.png")
-        : GameComponent(game), texturePath(textureFile) {
+        : GameComponent(game), texturePath(textureFile), initialized(false) {
+        vertexBuffer = nullptr;
+        indexBuffer = nullptr;
+        inputLayout = nullptr;
+        vertexShader = nullptr;
+        pixelShader = nullptr;
+        constantBuffer = nullptr;
+        samplerState = nullptr;
+        cubeTextureView = nullptr;
+        rasterizerState = nullptr;
+        depthStencilState = nullptr;
+        indexCount = 0;
+    }
+
+    ~Skybox() {
+        DestroyResources();
     }
 
     void Initialize() override {
         if (initialized) return;
+        if (!game || !game->Device) return;
 
         CreateCube();
         CreateShaders();
@@ -172,7 +189,9 @@ public:
         initialized = true;
     }
 
-    void Update(float deltaTime) override {}
+    void Update(float deltaTime) override {
+        (void)deltaTime;
+    }
 
     void Draw() override {
         if (!initialized || !game || !game->Context || !game->Camera) return;
@@ -192,7 +211,13 @@ public:
 
         Matrix view = game->Camera->GetViewMatrix();
         Matrix projection = game->Camera->GetProjectionMatrix();
-        Matrix wvp = Matrix::Identity * view * projection;
+
+        // ”бираем трансл€цию из view матрицы дл€ неба
+        view._41 = 0;
+        view._42 = 0;
+        view._43 = 0;
+
+        Matrix wvp = view * projection;
         Matrix transposed = wvp.Transpose();
         context->UpdateSubresource(constantBuffer, 0, nullptr, &transposed, 0, 0);
 
@@ -216,6 +241,15 @@ public:
 
         if (oldRasterState) oldRasterState->Release();
         if (oldDepthState) oldDepthState->Release();
+    }
+
+    void DrawGeometry(RenderingSystem* rs) override {
+        // Skybox не участвует в GBuffer
+        (void)rs;
+    }
+
+    void DrawShadow() override {
+        // Skybox не отбрасывает тени
     }
 
     void DestroyResources() override {

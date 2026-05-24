@@ -30,14 +30,14 @@ int main() {
     HINSTANCE hInstance = GetModuleHandle(nullptr);
     Game game(L"Katamari", hInstance, 800, 800);
 
-    Skybox* skybox = new Skybox(&game, "models/cubemap.png");
-    game.components.push_back(skybox);
+    //Skybox* skybox = new Skybox(&game, "models/cubemap.png");
+    //game.components.push_back(skybox);
 
     game.SunLight.direction = Vector3(0.5f, -1.0f, 0.3f);
     game.SunLight.direction.Normalize();
-    game.SunLight.ambient = Vector4(1.5f, 1.5f, 1.5f, 1.0f);
-    game.SunLight.diffuse = Vector4(1.0f, 0.9f, 0.7f, 1.0f);
-    game.SunLight.specular = Vector4(2.0f, 2.0f, 2.0f, 1.0f);
+    game.SunLight.ambient = Vector4(0.2f, 0.2f, 0.2f, 1.0f);   // Уменьшено
+    game.SunLight.diffuse = Vector4(0.8f, 0.8f, 0.8f, 1.0f);   // Уменьшено
+    game.SunLight.specular = Vector4(0.3f, 0.3f, 0.3f, 1.0f);   // Уменьшено
 
     TexturedGround* ground = new TexturedGround(&game, 100.0f, 100, "models/wood.jpg");
     game.components.push_back(ground);
