@@ -275,7 +275,17 @@ void Game::RestoreTargets() {
 }
 
 void Game::Draw() {
-    // Shadow Pass
+    // 1. Сначала очищаем RenderView и DepthBuffer
+    float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    Context->ClearRenderTargetView(RenderView, clearColor);
+    Context->ClearDepthStencilView(DepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+
+    // 2. Рисуем Skybox ПЕРВЫМ (заполняет цветом, но не пишет в depth)
+    if (skybox) {
+        skybox->Draw();
+    }
+
+    // 3. Shadow Pass
     UpdateCascades();
     for (UINT cascade = 0; cascade < CASCADE_COUNT; ++cascade) {
         PrepareCSMShadowPass(cascade);
@@ -285,21 +295,22 @@ void Game::Draw() {
         if (ShadowRendererComp) ShadowRendererComp->EndShadowPass(this);
     }
 
-    // Geometry Pass (сам очищает GBuffer внутри)
+    // 4. Geometry Pass - заполняет GBuffer (но НЕ трогает RenderView!)
     renderingSystem->BeginGeometryPass(Context, Camera->GetViewMatrix(), Camera->GetProjectionMatrix());
     for (auto* component : components) {
         component->DrawGeometry(renderingSystem);
     }
     renderingSystem->EndGeometryPass(Context);
 
-    // Lighting Pass - рисует прямо в RenderView
-    renderingSystem->RenderLighting(Context, RenderView, SunLight, Camera->GetPosition());
+    // 5. Lighting Pass - ДОБАВЛЯЕТ освещение к существующему изображению
+    // (не перезаписывает, а смешивает благодаря additiveBlendState)
+    renderingSystem->RenderLighting(Context, RenderView, SunLight, Camera->GetPosition(),
+        CSMShadowMapSRVs[0], ShadowSampler);
 
-    // Forward Pass (только отладочные коллайдеры)
+    // 6. Forward Pass для отладочных коллайдеров
     for (auto* component : components) {
         component->Draw();
     }
-
 }
 
 void Game::EndFrame() {

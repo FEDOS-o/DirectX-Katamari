@@ -1,4 +1,4 @@
-// Game.h (исправленный)
+// Game.h
 #pragma once
 
 #include <windows.h>
@@ -26,6 +26,7 @@ class OrbitalCamera;
 class FirstPersonCamera;
 class Camera;
 class GameComponent;
+class Skybox;
 namespace Render {
     class ShadowRenderer;
 }
@@ -40,14 +41,11 @@ private:
     ID3D11UnorderedAccessView* RenderSRV = nullptr;
     ID3D11Debug* DebugAnnotation = nullptr;
 
-    // Shadow map resources (private, но есть public геттеры если нужны)
     ID3D11Texture2D* ShadowMapTexture = nullptr;
     ID3D11DepthStencilView* ShadowMapDSV = nullptr;
 
 public:
-    // ƒелаем public дл€ доступа из RenderingSystem
     ID3D11ShaderResourceView* ShadowMapSRV = nullptr;
-
     ID3D11RasterizerState* RasterizerState = nullptr;
 
     ID3D11Texture2D* DepthStencilBuffer = nullptr;
@@ -66,6 +64,7 @@ public:
     OrbitalCamera* orbitalCamera = nullptr;
     FirstPersonCamera* firstPersonCamera = nullptr;
     Camera* Camera = nullptr;
+    Skybox* skybox = nullptr;  // ќтдельное поле дл€ Skybox
 
     ID3D11RenderTargetView* RenderView = nullptr;
     Microsoft::WRL::ComPtr<ID3D11Device> Device;
@@ -78,14 +77,13 @@ public:
     DirectionalLight SunLight;
     ID3D11ShaderResourceView* SkyboxTexture = nullptr;
 
-    // Deferred Rendering System
     RenderingSystem* renderingSystem = nullptr;
 
     // Shadow resources
     ID3D11SamplerState* ShadowSampler = nullptr;
     ID3D11Buffer* shadowConstantBuffer = nullptr;
     static constexpr UINT SHADOW_MAP_SIZE = 4096;
-    float ShadowBias = 0.00005f;
+    float ShadowBias = 0.0005f;
     float ShadowBiasSlope = 2.0f;
 
     Vector3 LightDirection = Vector3(0.5f, -1.0f, 0.3f);
@@ -95,8 +93,7 @@ public:
     Matrix lightViewMatrix;
     Matrix lightProjectionMatrix;
 
-    // ћетоды
-    void UpdateLight(float deltaTime);  // ƒќЅј¬Ћя≈ћ ќЅЏя¬Ћ≈Ќ»≈
+    void UpdateLight(float deltaTime);
 
     HRESULT CreateShadowMapResources();
     void PrepareShadowPass();
@@ -139,7 +136,7 @@ public:
     ID3D11InputLayout* ShadowInputLayout = nullptr;
 
     HRESULT CreateShadowShaders();
-    void RenderSceneToShadowMap();  // ƒќЅј¬Ћя≈ћ ќЅЏя¬Ћ≈Ќ»≈
+    void RenderSceneToShadowMap();
 
     Render::ShadowRenderer* ShadowRendererComp = nullptr;
     ID3D11Buffer* shadowWorldConstantBuffer = nullptr;

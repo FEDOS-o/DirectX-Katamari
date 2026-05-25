@@ -3,9 +3,9 @@
 #include "GameComponent.h"
 #include "Camera.h"
 #include "TextureLoader.h"
-#include "RenderingSystem.h"
 #include <SimpleMath.h>
 #include <string>
+#include <iostream>
 
 using namespace DirectX::SimpleMath;
 
@@ -46,7 +46,7 @@ private:
     }
 
     void CreateCube() {
-        const float SIZE = 100000.0f;
+        const float SIZE = 1000.0f;
         const Vertex VERTICES[] = {
             { Vector3(-SIZE, -SIZE,  SIZE) }, { Vector3(SIZE, -SIZE,  SIZE) },
             { Vector3(SIZE,  SIZE,  SIZE) }, { Vector3(-SIZE,  SIZE,  SIZE) },
@@ -55,9 +55,12 @@ private:
         };
 
         const UINT INDICES[] = {
-            0, 1, 2, 0, 2, 3, 1, 5, 6, 1, 6, 2,
-            5, 4, 7, 5, 7, 6, 4, 0, 3, 4, 3, 7,
-            3, 2, 6, 3, 6, 7, 4, 5, 1, 4, 1, 0,
+            0, 1, 2, 0, 2, 3,  // front
+            1, 5, 6, 1, 6, 2,  // right
+            5, 4, 7, 5, 7, 6,  // back
+            4, 0, 3, 4, 3, 7,  // left
+            3, 2, 6, 3, 6, 7,  // top
+            4, 5, 1, 4, 1, 0,  // bottom
         };
 
         indexCount = sizeof(INDICES) / sizeof(UINT);
@@ -78,17 +81,32 @@ private:
 
     void CreateShaders() {
         const char* vsCode = R"(
-            cbuffer ConstantBuffer : register(b0) { float4x4 worldViewProj; };
-            struct VSInput { float3 position : POSITION; };
+            cbuffer ConstantBuffer : register(b0) {
+                float4x4 viewProjection;
+            }
+            
+            struct VSInput {
+                float3 position : POSITION;
+            };
+            
             struct VSOutput {
                 float4 position : SV_POSITION;
                 float3 texCoord : TEXCOORD0;
             };
+            
             VSOutput VSMain(VSInput input) {
                 VSOutput output;
-                output.position = mul(float4(input.position, 1.0f), worldViewProj);
-                output.position = output.position.xyww;
+                
+                float4x4 viewProjNoTranslate = viewProjection;
+                viewProjNoTranslate[3][0] = 0;
+                viewProjNoTranslate[3][1] = 0;
+                viewProjNoTranslate[3][2] = 0;
+                
+                output.position = mul(float4(input.position, 1.0f), viewProjNoTranslate);
+                // КЛЮЧЕВОЙ МОМЕНТ: устанавливаем глубину в максимальное значение (1.0)
+                output.position.z = output.position.w;
                 output.texCoord = input.position;
+                
                 return output;
             }
         )";
@@ -96,10 +114,12 @@ private:
         const char* psCode = R"(
             TextureCube cubeTexture : register(t0);
             SamplerState cubeSampler : register(s0);
+            
             struct VSOutput {
                 float4 position : SV_POSITION;
                 float3 texCoord : TEXCOORD0;
             };
+            
             float4 PSMain(VSOutput input) : SV_TARGET {
                 return cubeTexture.Sample(cubeSampler, input.texCoord);
             }
@@ -140,16 +160,28 @@ private:
         game->Device->CreateSamplerState(&samplerDesc, &samplerState);
 
         D3D11_RASTERIZER_DESC rastDesc = {};
-        rastDesc.CullMode = D3D11_CULL_FRONT;
+        rastDesc.CullMode = D3D11_CULL_BACK;
         rastDesc.FillMode = D3D11_FILL_SOLID;
         rastDesc.DepthClipEnable = true;
         rastDesc.FrontCounterClockwise = true;
         game->Device->CreateRasterizerState(&rastDesc, &rasterizerState);
 
+        // КЛЮЧЕВОЙ МОМЕНТ: Depth state для skybox
+        // DepthWrite = OFF (не пишем в depth buffer)
+        // DepthFunc = GREATER_EQUAL (рисуем только если глубина сцены >= глубины skybox)
+        // Но так как глубина skybox = 1.0 (максимум), то он будет рисоваться только там, где глубина >= 1.0,
+        // то есть там, где ничего нет. Но это не работает, потому что глубина сцены < 1.0.
+        // Правильно: DepthFunc = ALWAYS, но с DepthWrite = OFF, и рисовать skybox ПЕРВЫМ.
+        // Или использовать LESS_EQUAL с глубиной 1.0.
+
+        // Вариант 1: Рисуем skybox ПЕРВЫМ, DepthWrite = OFF, DepthFunc = LESS_EQUAL
+        // Тогда skybox запишется в color buffer, но не в depth buffer,
+        // и объекты поверх него перерисуются.
         D3D11_DEPTH_STENCIL_DESC dsDesc = {};
         dsDesc.DepthEnable = true;
-        dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
-        dsDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+        dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;  // НЕ пишем в depth buffer
+        dsDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;       // Рисуем если глубина <= существующей
+        dsDesc.StencilEnable = false;
         game->Device->CreateDepthStencilState(&dsDesc, &depthStencilState);
     }
 
@@ -184,6 +216,10 @@ public:
         cubeTextureView = Core::TextureLoader::LoadCubeTexture(game, texturePath, faceSize);
         if (cubeTextureView) {
             game->SkyboxTexture = cubeTextureView;
+            std::cout << "Skybox texture loaded: " << texturePath << std::endl;
+        }
+        else {
+            std::cout << "ERROR: Skybox texture NOT loaded: " << texturePath << std::endl;
         }
 
         initialized = true;
@@ -199,6 +235,7 @@ public:
 
         ID3D11DeviceContext* context = game->Context;
 
+        // Сохраняем старые состояния
         ID3D11DepthStencilState* oldDepthState = nullptr;
         UINT oldStencilRef = 0;
         context->OMGetDepthStencilState(&oldDepthState, &oldStencilRef);
@@ -206,19 +243,20 @@ public:
         ID3D11RasterizerState* oldRasterState = nullptr;
         context->RSGetState(&oldRasterState);
 
+        // Устанавливаем skybox состояния
         context->RSSetState(rasterizerState);
         context->OMSetDepthStencilState(depthStencilState, 0);
 
         Matrix view = game->Camera->GetViewMatrix();
         Matrix projection = game->Camera->GetProjectionMatrix();
 
-        // Убираем трансляцию из view матрицы для неба
+        // Убираем трансляцию
         view._41 = 0;
         view._42 = 0;
         view._43 = 0;
 
-        Matrix wvp = view * projection;
-        Matrix transposed = wvp.Transpose();
+        Matrix viewProj = view * projection;
+        Matrix transposed = viewProj.Transpose();
         context->UpdateSubresource(constantBuffer, 0, nullptr, &transposed, 0, 0);
 
         UINT stride = sizeof(Vertex);
@@ -236,6 +274,7 @@ public:
 
         context->DrawIndexed(indexCount, 0, 0);
 
+        // Восстанавливаем старые состояния
         context->RSSetState(oldRasterState);
         context->OMSetDepthStencilState(oldDepthState, oldStencilRef);
 
@@ -244,12 +283,12 @@ public:
     }
 
     void DrawGeometry(RenderingSystem* rs) override {
-        // Skybox не участвует в GBuffer
+        // Не участвует в GBuffer
         (void)rs;
     }
 
     void DrawShadow() override {
-        // Skybox не отбрасывает тени
+        // Не отбрасывает тени
     }
 
     void DestroyResources() override {

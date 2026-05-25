@@ -30,8 +30,9 @@ int main() {
     HINSTANCE hInstance = GetModuleHandle(nullptr);
     Game game(L"Katamari", hInstance, 800, 800);
 
-    //Skybox* skybox = new Skybox(&game, "models/cubemap.png");
-    //game.components.push_back(skybox);
+    Skybox* skybox = new Skybox(&game, "models/cubemap.png");
+    game.skybox = skybox;  // Присваиваем в отдельное поле
+    skybox->Initialize();  // Инициализируем
 
     // В main(), после создания game:
     game.SunLight.direction = Vector3(0.5f, -1.0f, 0.3f);
