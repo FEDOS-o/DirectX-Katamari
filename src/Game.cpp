@@ -10,6 +10,7 @@
 #include <iostream>
 #include <algorithm>
 #include <Skybox.h>
+#include <Particle.h>
 
 // Game.cpp - Обновленный конструктор
 Game::Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG screenHeight) :
@@ -202,7 +203,6 @@ HRESULT Game::Initialize() {
     orbitalCamera->Initialize();
     firstPersonCamera->Initialize();
 
-    // Skybox инициализируем ДО других компонентов
     if (skybox) {
         skybox->Initialize();
     }
@@ -217,8 +217,6 @@ HRESULT Game::Initialize() {
     return S_OK;
 }
 
-// Game.cpp - Обновленный Update() метод
-// Game.cpp - обновленный Update() метод, добавить вызов UpdateAnimatedLights
 
 void Game::Update() {
     auto currentTime = std::chrono::steady_clock::now();
@@ -244,10 +242,8 @@ void Game::Update() {
         component->Update(deltaTime);
     }
 
-    // Обновляем все компоненты света
     UpdateLights(deltaTime);
 
-    // Обновляем анимированные lights
     UpdateAnimatedLights(deltaTime);
 
     UpdateLight(deltaTime);
@@ -292,22 +288,20 @@ void Game::RestoreTargets() {
     CreateDepthBuffer();
 }
 
-// Game.cpp - обновленный метод Draw()
-
-// Game.cpp - метод Draw()
 
 void Game::Draw() {
     float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
     Context->ClearRenderTargetView(RenderView, clearColor);
     Context->ClearDepthStencilView(DepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-    // Shadow Pass (CSM)
+    // ============================================
+    // SHADOW PASS
+    // ============================================
     UpdateCascades();
     for (UINT cascade = 0; cascade < CASCADE_COUNT; ++cascade) {
         PrepareCSMShadowPass(cascade);
         if (ShadowRendererComp) ShadowRendererComp->BeginShadowPass(this);
 
-        // ВАЖНО: устанавливаем константный буфер с матрицами для текущего каскада
         ShadowConstantBuffer shadowCB;
         for (int i = 0; i < 4; i++) {
             shadowCB.lightView[i] = cascades[cascade].viewMatrix.Transpose();
@@ -320,29 +314,54 @@ void Game::Draw() {
         if (ShadowRendererComp) ShadowRendererComp->EndShadowPass(this);
     }
 
-    // Geometry Pass
+    // ============================================
+    // GEOMETRY PASS
+    // ============================================
     renderingSystem->BeginGeometryPass(Context, Camera->GetViewMatrix(), Camera->GetProjectionMatrix());
     for (auto* component : components) {
         component->DrawGeometry(renderingSystem);
     }
     renderingSystem->EndGeometryPass(Context);
 
-    // Lighting Pass
+    // ============================================
+    // LIGHTING PASS
+    // ============================================
     float blendFactor[4] = { 0, 0, 0, 0 };
     Context->OMSetBlendState(renderingSystem->GetAdditiveBlendState(), blendFactor, 0xffffffff);
-    Context->OMSetRenderTargets(1, &RenderView, DepthStencilView);
+    Context->OMSetRenderTargets(1, &RenderView, renderingSystem->GetGBuffer()->GetDepthDSV());
 
-    // ВАЖНО: передаем правильный SRV (Texture2DArray для CSM)
     renderingSystem->RenderLighting(Context, RenderView, SunLight, Camera->GetPosition(),
-        CSMShadowMapSRVs[0],  // Весь массив каскадов
-        ShadowSampler);
+        CSMShadowMapSRVs[0], ShadowSampler);
 
     Context->OMSetBlendState(nullptr, blendFactor, 0xffffffff);
 
-    // Skybox и Forward pass
+    // ============================================
+    // SKYBOX
+    // ============================================
     if (skybox) skybox->Draw();
-    Context->OMSetRenderTargets(1, &RenderView, DepthStencilView);
+
+    // ============================================
+    // FORWARD PASS (частицы и всё прозрачное)
+    // ============================================
+    // Просто устанавливаем DepthStencilState для forward рендеринга
+    D3D11_DEPTH_STENCIL_DESC forwardDSDesc = {};
+    forwardDSDesc.DepthEnable = TRUE;
+    forwardDSDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;  // Не пишем в depth
+    forwardDSDesc.DepthFunc = D3D11_COMPARISON_LESS;              // Читаем depth
+    forwardDSDesc.StencilEnable = FALSE;
+
+    ID3D11DepthStencilState* forwardDepthState = nullptr;
+    Device->CreateDepthStencilState(&forwardDSDesc, &forwardDepthState);
+
+    // Устанавливаем forward state и используем depth buffer из G-Buffer
+    Context->OMSetRenderTargets(1, &RenderView, renderingSystem->GetGBuffer()->GetDepthDSV());
+    Context->OMSetDepthStencilState(forwardDepthState, 0);
+
+    // Рисуем все forward-объекты (частицы)
     for (auto* component : components) component->Draw();
+
+    // Не возвращаем старый state - следующий кадр всё перезапишет
+    if (forwardDepthState) forwardDepthState->Release();
 }
 
 void Game::EndFrame() {

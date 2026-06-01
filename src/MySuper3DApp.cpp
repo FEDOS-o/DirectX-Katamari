@@ -6,6 +6,7 @@
 #include "Skybox.h"
 #include "PointLightComponent.h"
 #include "SpotLightComponent.h"
+#include "Particle.h"
 #include <random>
 #include <cmath>
 #include <vector>
@@ -230,6 +231,10 @@ int main() {
 
     KatamariBall* ball = new KatamariBall(&game, camera, Vector3(0, 0.5f, 0), 0.6f, "models/marble.jpg");
     game.components.push_back(ball);
+
+    ParticleEmitter* fountain1 = new ParticleEmitter(&game, Vector3(5.0f, 0.5f, 5.0f));
+    fountain1->SetupFountain(Vector3(5.0f, 0.5f, 5.0f), Vector4(1.0f, 0.5f, 0.2f, 1.0f));
+    game.components.push_back(fountain1);
 
     std::vector<std::string> models = {
         "models/childrens_chair/childrens_chair.obj",

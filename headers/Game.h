@@ -110,6 +110,11 @@ public:
     Matrix GetLightViewMatrix() const;
     Matrix GetLightProjectionMatrix() const;
 
+    // Game.h - добавить в public секцию:
+    float GetDeltaTime() const { return deltaTime; }
+
+    float deltaTime = 0.0f;
+
     // CSM resources
     static constexpr UINT CASCADE_COUNT = 4;
     static constexpr UINT CSM_SHADOW_MAP_SIZE = 2048;

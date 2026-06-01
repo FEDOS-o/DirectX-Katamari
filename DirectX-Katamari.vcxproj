@@ -37,6 +37,7 @@
     <ClInclude Include="headers\ModelLoader.h" />
     <ClInclude Include="headers\ModelRenderer.h" />
     <ClInclude Include="headers\ModelTypes.h" />
+    <ClInclude Include="headers\Particle.h" />
     <ClInclude Include="headers\PointLightComponent.h" />
     <ClInclude Include="headers\RenderingSystem.h" />
     <ClInclude Include="headers\ShadowRenderer.h" />
@@ -65,6 +66,7 @@
     <ClCompile Include="src\InputDevice.cpp" />
     <ClCompile Include="src\KatamariBall.cpp" />
     <ClCompile Include="src\MySuper3DApp.cpp" />
+    <ClCompile Include="src\Particle.cpp" />
     <ClCompile Include="src\Prop.cpp" />
     <ClCompile Include="src\RenderingSystem.cpp" />
     <ClCompile Include="src\TexturedGround.cpp" />
