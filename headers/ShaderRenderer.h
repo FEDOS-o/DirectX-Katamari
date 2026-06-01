@@ -20,7 +20,6 @@ namespace Render {
         ID3D11Buffer* materialBuffer = nullptr;
         ID3D11Buffer* lightBuffer = nullptr;
         ID3D11SamplerState* samplerState = nullptr;
-        ID3D11SamplerState* cubeSamplerState = nullptr;
         bool shadersInitialized = false;
 
         ID3DBlob* CompileShader(const char* code, const char* target, const char* entryPoint) {

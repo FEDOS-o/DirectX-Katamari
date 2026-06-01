@@ -31,14 +31,13 @@ int main() {
     Game game(L"Katamari", hInstance, 800, 800);
 
     Skybox* skybox = new Skybox(&game, "models/cubemap.png");
-    game.skybox = skybox;  // Присваиваем в отдельное поле
+    game.components.push_back(skybox);
 
-    // В main(), после создания game:
     game.SunLight.direction = Vector3(0.5f, -1.0f, 0.3f);
     game.SunLight.direction.Normalize();
-    game.SunLight.ambient = Vector4(0.2f, 0.2f, 0.2f, 1.0f);
-    game.SunLight.diffuse = Vector4(0.9f, 0.9f, 0.9f, 1.0f);
-    game.SunLight.specular = Vector4(1.0f, 1.0f, 1.0f, 1.0f);  // Яркий specular
+    game.SunLight.ambient = Vector4(1.5f, 1.5f, 1.5f, 1.0f);
+    game.SunLight.diffuse = Vector4(1.0f, 0.9f, 0.7f, 1.0f);
+    game.SunLight.specular = Vector4(2.0f, 2.0f, 2.0f, 1.0f);
 
     TexturedGround* ground = new TexturedGround(&game, 100.0f, 100, "models/wood.jpg");
     game.components.push_back(ground);

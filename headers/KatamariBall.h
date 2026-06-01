@@ -1,11 +1,9 @@
-// KatamariBall.h - добавляем новый метод
 #pragma once
 #include "GameComponent.h"
 #include "TextureLoader.h"
 #include "Prop.h"
 #include "SphereRenderer.h"
 #include "OrbitalCamera.h"
-#include "RenderingSystem.h"  // Добавляем
 #include <SimpleMath.h>
 #include <vector>
 #include <set>
@@ -27,7 +25,7 @@ struct AttachedObject {
 };
 
 #pragma warning(push)
-#pragma warning(disable: 4100)
+#pragma warning(disable: 4100) // unreferenced formal parameter
 
 class KatamariBall : public GameComponent {
 private:
@@ -78,8 +76,7 @@ public:
 
     void Initialize() override;
     void Update(float deltaTime) override;
-    void Draw() override;                    // Оставляем для forward (не используется в deferred)
-    void DrawGeometry(RenderingSystem* rs) override;  // НОВЫЙ МЕТОД
+    void Draw() override;
     void DrawShadow() override;
     void DestroyResources() override;
 
@@ -94,7 +91,6 @@ public:
     int GetAttachedCount() const { return (int)attachedObjects.size(); }
 
     void DrawBall();
-    void DrawBallGeometry(RenderingSystem* rs);  // НОВЫЙ МЕТОД для geometry pass
 };
 
 #pragma warning(pop)

@@ -170,7 +170,6 @@ namespace Render {
                 TextureCube skyboxTexture : register(t1);
                 Texture2DArray shadowMap : register(t2);
                 SamplerState objSampler : register(s0);
-                SamplerState cubeSampler : register(s2);  // ƒќЅј¬»“№ отдельный сэмплер дл€ cubemap
                 SamplerComparisonState shadowSampler : register(s1);
 
                 struct VSOutput {
@@ -190,17 +189,17 @@ namespace Render {
                     float3 lightDir = normalize(-lightDirection);
                     float3 viewDir = normalize(cameraPosition.xyz - input.worldPosition);
                     float3 reflectLightDir = reflect(-lightDir, normal);
-
+    
                     float3 ambient = lightAmbient.rgb * materialAmbient.rgb;
                     float diff = max(dot(normal, lightDir), 0.0f);
                     float3 diffuse = lightDiffuse.rgb * diff * materialDiffuse.rgb;
                     float spec = pow(max(dot(viewDir, reflectLightDir), 0.0f), shininess);
                     float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
-
+    
                     float shadowFactor = 1.0f;
                     if (useShadow != 0) {
                         float depth = length(cameraPosition.xyz - input.worldPosition);
-
+    
                         float4 shadowPos;
                         int cascadeIndex = 0;
                         if (depth <= cascadeSplit0) {
@@ -216,18 +215,18 @@ namespace Render {
                             shadowPos = input.shadowPos3;
                             cascadeIndex = 3;
                         }
-
+    
                         float3 projCoords = shadowPos.xyz / shadowPos.w;
                         projCoords.x = projCoords.x * 0.5f + 0.5f;
                         projCoords.y = projCoords.y * -0.5f + 0.5f;
-
+    
                         float bias = shadowBias * tan(acos(saturate(diff)));
                         bias = clamp(bias, 0.0f, 0.0005f);
                         projCoords.z -= bias;
-
+    
                         if (projCoords.x >= 0.0f && projCoords.x <= 1.0f &&
                             projCoords.y >= 0.0f && projCoords.y <= 1.0f) {
-    
+        
                             float2 texelSize = float2(1.0f / 2048.0f, 1.0f / 2048.0f);
                             shadowFactor = 0.0f;
                             shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, float3(projCoords.xy + float2(-0.5f, -0.5f) * texelSize, cascadeIndex), projCoords.z);
@@ -235,13 +234,19 @@ namespace Render {
                             shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, float3(projCoords.xy + float2(-0.5f, 0.5f) * texelSize, cascadeIndex), projCoords.z);
                             shadowFactor += shadowMap.SampleCmpLevelZero(shadowSampler, float3(projCoords.xy + float2(0.5f, 0.5f) * texelSize, cascadeIndex), projCoords.z);
                             shadowFactor *= 0.25f;
-    
+        
                             shadowFactor = saturate(shadowFactor + 0.1f);
                         }
                     }
-
+    
                     float3 result = ambient + (diffuse + specular) * shadowFactor;
-
+    
+                    if (useReflection != 0) {
+                        float3 reflectDir = reflect(-viewDir, normal);
+                        float3 reflection = skyboxTexture.Sample(objSampler, reflectDir).rgb;
+                        result = result * 0.6f + reflection * 0.4f;
+                    }
+    
                     float4 texColor = float4(1, 1, 1, 1);
                     if (useTexture != 0) {
                         texColor = objTexture.Sample(objSampler, input.texCoord);
@@ -251,24 +256,7 @@ namespace Render {
                     } else {
                         result *= input.color.rgb;
                     }
-
-                    if (useReflection != 0) {
-/*
-                        float3 incident = normalize(input.worldPosition - cameraPosition.xyz);
-                        float3 reflectDir = reflect(incident, normal);
-        
-                        float3 reflection = skyboxTexture.Sample(cubeSampler, reflectDir).rgb;
-        
-                        float fresnel = pow(1.0f - saturate(dot(normal, -incident)), 3.0f);
-                        fresnel = lerp(0.04f, 1.0f, fresnel);
-        
-                        result = lerp(result, reflection, fresnel * 0.8f);
-*/
-                        float3 reflectDir = reflect(viewDir, normal);
-                        float3 reflection = skyboxTexture.Sample(cubeSampler, reflectDir).rgb;
-                        result = result * 0.6f + reflection * 0.4f;
-                    }
-
+    
                     return float4(result, 1.0f);
                 }
             )";
@@ -335,15 +323,6 @@ namespace Render {
             samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
             samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
             game->Device->CreateSamplerState(&samplerDesc, &samplerState);
-
-            D3D11_SAMPLER_DESC cubeSamplerDesc = {};
-            cubeSamplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-            cubeSamplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-            cubeSamplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-            cubeSamplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-            cubeSamplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
-
-            game->Device->CreateSamplerState(&cubeSamplerDesc, &cubeSamplerState);
 
             geometryInitialized = true;
             shadersInitialized = true;
@@ -423,7 +402,6 @@ namespace Render {
             game->Context->PSSetConstantBuffers(1, 1, &materialBuffer);
             game->Context->PSSetConstantBuffers(2, 1, &lightBuffer);
             game->Context->PSSetSamplers(0, 1, &samplerState);
-            game->Context->PSSetSamplers(2, 1, &cubeSamplerState);
 
             if (texture) {
                 game->Context->PSSetShaderResources(0, 1, &texture);

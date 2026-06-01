@@ -1,9 +1,6 @@
-// Prop.h
 #pragma once
 #include "GameComponent.h"
 #include "Model3D.h"
-
-class RenderingSystem;  // Forward declaration
 
 class Prop : public GameComponent {
 private:
@@ -32,8 +29,7 @@ public:
 
     void Initialize() override;
     void Update(float deltaTime) override;
-    void Draw() override;                           // Оставляем
-    void DrawGeometry(RenderingSystem* rs) override; // НОВЫЙ МЕТОД
+    void Draw() override;
     void DrawShadow() override;
     void DestroyResources() override;
 

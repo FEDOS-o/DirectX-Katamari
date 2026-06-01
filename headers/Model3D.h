@@ -87,6 +87,4 @@ public:
 
     void CalculateLocalBoundingBox() { loader.CalculateLocalBoundingBox(); }
     DirectX::BoundingBox GetLocalBoundingBox() const { return loader.GetLocalBoundingBox(); }
-
-    MaterialManager* GetMaterialManager() { return &materialManager; }
 };
