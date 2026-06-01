@@ -198,6 +198,11 @@ HRESULT Game::Initialize() {
     orbitalCamera->Initialize();
     firstPersonCamera->Initialize();
 
+    // Skybox инициализируем ƒќ других компонентов
+    if (skybox) {
+        skybox->Initialize();
+    }
+
     ShadowRendererComp = new Render::ShadowRenderer();
     ShadowRendererComp->Initialize(this);
 
@@ -275,17 +280,12 @@ void Game::RestoreTargets() {
 }
 
 void Game::Draw() {
-    // 1. —начала очищаем RenderView и DepthBuffer
+    // 1. ќчистка RenderView и основного DepthBuffer
     float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
     Context->ClearRenderTargetView(RenderView, clearColor);
     Context->ClearDepthStencilView(DepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-    // 2. –исуем Skybox ѕ≈–¬џћ (заполн€ет цветом, но не пишет в depth)
-    if (skybox) {
-        skybox->Draw();
-    }
-
-    // 3. Shadow Pass
+    // 2. Shadow Pass (CSM)
     UpdateCascades();
     for (UINT cascade = 0; cascade < CASCADE_COUNT; ++cascade) {
         PrepareCSMShadowPass(cascade);
@@ -295,19 +295,28 @@ void Game::Draw() {
         if (ShadowRendererComp) ShadowRendererComp->EndShadowPass(this);
     }
 
-    // 4. Geometry Pass - заполн€ет GBuffer (но Ќ≈ трогает RenderView!)
+    // 3. Geometry Pass в GBuffer
     renderingSystem->BeginGeometryPass(Context, Camera->GetViewMatrix(), Camera->GetProjectionMatrix());
     for (auto* component : components) {
         component->DrawGeometry(renderingSystem);
     }
     renderingSystem->EndGeometryPass(Context);
 
-    // 5. Lighting Pass - ƒќЅј¬Ћя≈“ освещение к существующему изображению
-    // (не перезаписывает, а смешивает благодар€ additiveBlendState)
+    // 4. Lighting Pass Ч результат в RenderView
+    // »спользуем основной DepthStencilView дл€ depth test, чтобы forward pass потом работал корректно
+    Context->OMSetRenderTargets(1, &RenderView, DepthStencilView);
     renderingSystem->RenderLighting(Context, RenderView, SunLight, Camera->GetPosition(),
         CSMShadowMapSRVs[0], ShadowSampler);
 
-    // 6. Forward Pass дл€ отладочных коллайдеров
+    // 5. Skybox Ч после lighting, перед forward
+    // –исуем только там, где depth == 1.0 (far plane), не пишем в depth
+    if (skybox) {
+        skybox->Draw();
+    }
+
+    // 6. Forward Pass дл€ прозрачных/специальных объектов
+    // »спользуем тот же RenderView + DepthStencilView
+    Context->OMSetRenderTargets(1, &RenderView, DepthStencilView);
     for (auto* component : components) {
         component->Draw();
     }

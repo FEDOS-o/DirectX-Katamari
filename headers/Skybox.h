@@ -46,7 +46,10 @@ private:
     }
 
     void CreateCube() {
-        const float SIZE = 1000.0f;
+        // Размер должен быть достаточно большим, чтобы покрыть весь view frustum
+        // Но не настолько, чтобы вызвать проблемы с точностью
+        const float SIZE = 500.0f;  // Было 1000.0f — уменьшил для стабильности
+
         const Vertex VERTICES[] = {
             { Vector3(-SIZE, -SIZE,  SIZE) }, { Vector3(SIZE, -SIZE,  SIZE) },
             { Vector3(SIZE,  SIZE,  SIZE) }, { Vector3(-SIZE,  SIZE,  SIZE) },
@@ -54,13 +57,15 @@ private:
             { Vector3(SIZE,  SIZE, -SIZE) }, { Vector3(-SIZE,  SIZE, -SIZE) },
         };
 
+        // Индексы для внутренней стороны куба (мы внутри!)
+        // Порядок clockwise когда смотришь изнутри
         const UINT INDICES[] = {
-            0, 1, 2, 0, 2, 3,  // front
-            1, 5, 6, 1, 6, 2,  // right
-            5, 4, 7, 5, 7, 6,  // back
-            4, 0, 3, 4, 3, 7,  // left
-            3, 2, 6, 3, 6, 7,  // top
-            4, 5, 1, 4, 1, 0,  // bottom
+            0, 2, 1,  0, 3, 2,   // front (z+)
+            1, 6, 5,  1, 2, 6,   // right (x+)
+            5, 7, 4,  5, 6, 7,   // back (z-)
+            4, 3, 0,  4, 7, 3,   // left (x-)
+            3, 6, 2,  3, 7, 6,   // top (y+)
+            4, 1, 5,  4, 0, 1,   // bottom (y-)
         };
 
         indexCount = sizeof(INDICES) / sizeof(UINT);
@@ -81,49 +86,49 @@ private:
 
     void CreateShaders() {
         const char* vsCode = R"(
-            cbuffer ConstantBuffer : register(b0) {
-                float4x4 viewProjection;
-            }
+        cbuffer ConstantBuffer : register(b0) {
+            float4x4 viewProjection;
+        }
+        
+        struct VSInput {
+            float3 position : POSITION;
+        };
+        
+        struct VSOutput {
+            float4 position : SV_POSITION;
+            float3 texCoord : TEXCOORD0;
+        };
+        
+        VSOutput VSMain(VSInput input) {
+            VSOutput output;
             
-            struct VSInput {
-                float3 position : POSITION;
-            };
+            float4x4 viewProjNoTranslate = viewProjection;
+            viewProjNoTranslate[3][0] = 0;
+            viewProjNoTranslate[3][1] = 0;
+            viewProjNoTranslate[3][2] = 0;
             
-            struct VSOutput {
-                float4 position : SV_POSITION;
-                float3 texCoord : TEXCOORD0;
-            };
+            output.position = mul(float4(input.position, 1.0f), viewProjNoTranslate);
+            // Skybox должен быть на far plane — устанавливаем z = w
+            output.position.z = output.position.w;
+            output.texCoord = input.position;
             
-            VSOutput VSMain(VSInput input) {
-                VSOutput output;
-                
-                float4x4 viewProjNoTranslate = viewProjection;
-                viewProjNoTranslate[3][0] = 0;
-                viewProjNoTranslate[3][1] = 0;
-                viewProjNoTranslate[3][2] = 0;
-                
-                output.position = mul(float4(input.position, 1.0f), viewProjNoTranslate);
-                // КЛЮЧЕВОЙ МОМЕНТ: устанавливаем глубину в максимальное значение (1.0)
-                output.position.z = output.position.w;
-                output.texCoord = input.position;
-                
-                return output;
-            }
-        )";
+            return output;
+        }
+    )";
 
         const char* psCode = R"(
-            TextureCube cubeTexture : register(t0);
-            SamplerState cubeSampler : register(s0);
-            
-            struct VSOutput {
-                float4 position : SV_POSITION;
-                float3 texCoord : TEXCOORD0;
-            };
-            
-            float4 PSMain(VSOutput input) : SV_TARGET {
-                return cubeTexture.Sample(cubeSampler, input.texCoord);
-            }
-        )";
+        TextureCube cubeTexture : register(t0);
+        SamplerState cubeSampler : register(s0);
+        
+        struct VSOutput {
+            float4 position : SV_POSITION;
+            float3 texCoord : TEXCOORD0;
+        };
+        
+        float4 PSMain(VSOutput input) : SV_TARGET {
+            return cubeTexture.Sample(cubeSampler, input.texCoord);
+        }
+    )";
 
         ID3DBlob* vsBlob = CompileShader(vsCode, "vs_5_0", "VSMain");
         ID3DBlob* psBlob = CompileShader(psCode, "ps_5_0", "PSMain");
@@ -159,28 +164,20 @@ private:
         samplerDesc.MaxLOD = D3D11_FLOAT32_MAX;
         game->Device->CreateSamplerState(&samplerDesc, &samplerState);
 
+        // Front-face culling для skybox (мы внутри куба!)
         D3D11_RASTERIZER_DESC rastDesc = {};
-        rastDesc.CullMode = D3D11_CULL_BACK;
+        rastDesc.CullMode = D3D11_CULL_FRONT;  // ВАЖНО: cull front, т.к. камера внутри
         rastDesc.FillMode = D3D11_FILL_SOLID;
         rastDesc.DepthClipEnable = true;
-        rastDesc.FrontCounterClockwise = true;
+        rastDesc.FrontCounterClockwise = false;
         game->Device->CreateRasterizerState(&rastDesc, &rasterizerState);
 
-        // КЛЮЧЕВОЙ МОМЕНТ: Depth state для skybox
-        // DepthWrite = OFF (не пишем в depth buffer)
-        // DepthFunc = GREATER_EQUAL (рисуем только если глубина сцены >= глубины skybox)
-        // Но так как глубина skybox = 1.0 (максимум), то он будет рисоваться только там, где глубина >= 1.0,
-        // то есть там, где ничего нет. Но это не работает, потому что глубина сцены < 1.0.
-        // Правильно: DepthFunc = ALWAYS, но с DepthWrite = OFF, и рисовать skybox ПЕРВЫМ.
-        // Или использовать LESS_EQUAL с глубиной 1.0.
-
-        // Вариант 1: Рисуем skybox ПЕРВЫМ, DepthWrite = OFF, DepthFunc = LESS_EQUAL
-        // Тогда skybox запишется в color buffer, но не в depth buffer,
-        // и объекты поверх него перерисуются.
+        // Depth state: LESS_EQUAL + NO depth write
+        // Skybox на far plane (z=w), поэтому depth test должен пропускать z == 1.0
         D3D11_DEPTH_STENCIL_DESC dsDesc = {};
         dsDesc.DepthEnable = true;
-        dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;  // НЕ пишем в depth buffer
-        dsDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;       // Рисуем если глубина <= существующей
+        dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;  // Не пишем в depth buffer
+        dsDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;       // <= 1.0 проходит
         dsDesc.StencilEnable = false;
         game->Device->CreateDepthStencilState(&dsDesc, &depthStencilState);
     }
@@ -229,7 +226,7 @@ public:
         (void)deltaTime;
     }
 
-    void Draw() override {
+    void Draw() {
         if (!initialized || !game || !game->Context || !game->Camera) return;
         if (!cubeTextureView) return;
 
@@ -243,14 +240,20 @@ public:
         ID3D11RasterizerState* oldRasterState = nullptr;
         context->RSGetState(&oldRasterState);
 
-        // Устанавливаем skybox состояния
+        ID3D11BlendState* oldBlendState = nullptr;
+        float oldBlendFactor[4] = { 0, 0, 0, 0 };
+        UINT oldSampleMask = 0xffffffff;
+        context->OMGetBlendState(&oldBlendState, oldBlendFactor, &oldSampleMask);
+
+        // Устанавливаем skybox-специфичные состояния
         context->RSSetState(rasterizerState);
         context->OMSetDepthStencilState(depthStencilState, 0);
+        context->OMSetBlendState(nullptr, nullptr, 0xffffffff); // No blending
 
         Matrix view = game->Camera->GetViewMatrix();
         Matrix projection = game->Camera->GetProjectionMatrix();
 
-        // Убираем трансляцию
+        // Убираем трансляцию из view (skybox всегда в центре камеры)
         view._41 = 0;
         view._42 = 0;
         view._43 = 0;
@@ -274,12 +277,18 @@ public:
 
         context->DrawIndexed(indexCount, 0, 0);
 
+        // Очищаем shader resource, чтобы не конфликтовало с другими проходами
+        ID3D11ShaderResourceView* nullSRV = nullptr;
+        context->PSSetShaderResources(0, 1, &nullSRV);
+
         // Восстанавливаем старые состояния
         context->RSSetState(oldRasterState);
         context->OMSetDepthStencilState(oldDepthState, oldStencilRef);
+        context->OMSetBlendState(oldBlendState, oldBlendFactor, oldSampleMask);
 
         if (oldRasterState) oldRasterState->Release();
         if (oldDepthState) oldDepthState->Release();
+        if (oldBlendState) oldBlendState->Release();
     }
 
     void DrawGeometry(RenderingSystem* rs) override {

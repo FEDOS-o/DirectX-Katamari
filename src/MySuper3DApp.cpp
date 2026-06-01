@@ -32,7 +32,6 @@ int main() {
 
     Skybox* skybox = new Skybox(&game, "models/cubemap.png");
     game.skybox = skybox;  // Присваиваем в отдельное поле
-    skybox->Initialize();  // Инициализируем
 
     // В main(), после создания game:
     game.SunLight.direction = Vector3(0.5f, -1.0f, 0.3f);

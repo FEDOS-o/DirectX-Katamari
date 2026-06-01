@@ -575,7 +575,7 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
     if (!initialized || !context) return;
 
     // ВАЖНО: используем blending, чтобы добавить освещение к существующему изображению
-    context->OMSetRenderTargets(1, &finalRTV, nullptr);
+    context->OMSetRenderTargets(1, &finalRTV, gBuffer->GetDepthDSV());
 
     D3D11_VIEWPORT viewport = {};
     viewport.Width = (float)screenWidth;
