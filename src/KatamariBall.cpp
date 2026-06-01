@@ -2,6 +2,7 @@
 #include "Prop.h"
 #include "Game.h"
 #include "ShadowRenderer.h"
+#include "RenderingSystem.h"
 #include <d3dcompiler.h>
 #include <cmath>
 #include <iostream>
@@ -338,6 +339,8 @@ void KatamariBall::UpdateAttachedObjects(float deltaTime) {
 }
 
 void KatamariBall::DrawBall() {
+    // Этот метод остается для forward rendering (прозрачные объекты)
+    // Но в deferred он не используется
     if (!game || !game->Camera || !sphereInitialized) return;
 
     Vector3 rotAxis = Vector3(1, 0, 0);
@@ -362,13 +365,67 @@ void KatamariBall::DrawBall() {
     sphereRenderer.Draw(game, world, ballColor,
         game->Camera->GetViewMatrix(),
         game->Camera->GetProjectionMatrix(),
-        ballTexture, &ballMaterial, true, true);  // useReflection = true, useShadow = true
+        ballTexture, &ballMaterial, true, true);
+}
+
+void KatamariBall::DrawGeometry(RenderingSystem* rs) {
+    std::cout << "KatamariBall::DrawGeometry called" << std::endl;
+
+    if (!sphereInitialized) {
+        std::cout << "  sphereInitialized = false" << std::endl;
+        return;
+    }
+    if (!rs) {
+        std::cout << "  rs = null" << std::endl;
+        return;
+    }
+
+    std::cout << "  Drawing ball at position (" << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
+
+    // Устанавливаем текстуру шара
+    if (ballTexture) {
+        game->Context->PSSetShaderResources(0, 1, &ballTexture);
+        std::cout << "  Texture set" << std::endl;
+    }
+    else {
+        std::cout << "  No texture" << std::endl;
+    }
+
+    Vector3 rotAxis = Vector3(1, 0, 0);
+    float speed = velocity.Length();
+    if (speed > 0.01f) {
+        Vector3 moveDir = velocity;
+        moveDir.y = 0;
+        if (moveDir.Length() > 0.01f) {
+            moveDir.Normalize();
+            rotAxis = Vector3(0, 1, 0).Cross(moveDir);
+            rotAxis = (rotAxis.Length() < 0.1f) ? Vector3(1, 0, 0) : rotAxis;
+            rotAxis.Normalize();
+        }
+    }
+
+    Quaternion rotation = Quaternion::CreateFromAxisAngle(rotAxis, rotationAngle);
+    Matrix world = Matrix::CreateScale(radius) *
+        Matrix::CreateFromQuaternion(rotation) *
+        Matrix::CreateTranslation(position);
+
+    std::cout << "  Calling DrawMeshToGBuffer" << std::endl;
+    rs->DrawMeshToGBuffer(game->Context,
+        sphereRenderer.GetVertexBuffer(),
+        sphereRenderer.GetIndexBuffer(),
+        sphereRenderer.GetIndexCount(),
+        world);
+    std::cout << "  DrawMeshToGBuffer completed" << std::endl;
+
+    // Очищаем текстуру
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    game->Context->PSSetShaderResources(0, 1, &nullSRV);
 }
 
 void KatamariBall::Draw() {
-    DrawBall();
     DrawDebugCollider();
 }
+
 
 void KatamariBall::DestroyResources() {
     if (sphereInitialized) {
@@ -391,7 +448,6 @@ void KatamariBall::DestroyResources() {
 void KatamariBall::DrawShadow() {
     if (!sphereInitialized) return;
 
-    // Получаем world матрицу для шара
     Vector3 rotAxis = Vector3(1, 0, 0);
     float speed = velocity.Length();
     if (speed > 0.01f) {
@@ -409,12 +465,6 @@ void KatamariBall::DrawShadow() {
     Matrix world = Matrix::CreateScale(radius) *
         Matrix::CreateFromQuaternion(rotation) *
         Matrix::CreateTranslation(position);
-
-    static int frameCount = 0;
-    if (frameCount++ % 60 == 0) {
-        std::cout << "Ball shadow: pos(" << position.x << "," << position.y << "," << position.z
-            << ") radius=" << radius << std::endl;
-    }
 
     game->ShadowRendererComp->DrawMesh(game,
         sphereRenderer.GetVertexBuffer(), 0,

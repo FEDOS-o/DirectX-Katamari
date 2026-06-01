@@ -1,7 +1,9 @@
+// TexturedGround.h
 #pragma once
 #include "GameComponent.h"
 #include "TextureLoader.h"
 #include "ShadowRenderer.h"
+#include "RenderingSystem.h"
 #include <SimpleMath.h>
 #include <vector>
 #include <d3dcompiler.h>
@@ -15,6 +17,7 @@ class TexturedGround : public GameComponent {
 private:
     struct Vertex {
         Vector3 position;
+        Vector4 color;
         Vector2 texCoord;
         Vector3 normal;
         Vector4 color;
@@ -161,7 +164,7 @@ private:
             }
         )";
 
-        // Пиксельный шейдер с РАСКРАСКОЙ КАСКАДОВ
+        // ГЏГЁГЄГ±ГҐГ«ГјГ­Г»Г© ГёГҐГ©Г¤ГҐГ° Г± ГђГЂГ‘ГЉГђГЂГ‘ГЉГЋГ‰ ГЉГЂГ‘ГЉГЂГ„ГЋГ‚
         const char* psCode = R"(
             cbuffer PSConstantBuffer : register(b0) {
                 float4 cameraPosition;
@@ -222,7 +225,7 @@ private:
                 float3 specular = lightSpecular.rgb * spec * materialSpecular.rgb;
                 
                 float shadowFactor = 1.0f;
-                float3 cascadeColor = float3(1, 1, 1); // Белый по умолчанию
+                float3 cascadeColor = float3(1, 1, 1); // ГЃГҐГ«Г»Г© ГЇГ® ГіГ¬Г®Г«Г·Г Г­ГЁГѕ
                 
                 if (useShadow != 0) {
                     float depth = length(cameraPosition.xyz - input.worldPosition);
@@ -232,19 +235,19 @@ private:
                     if (depth <= cascadeSplit0) {
                         shadowPos = input.shadowPos0;
                         cascadeIndex = 0;
-                        cascadeColor = float3(1, 0.2f, 0.2f); // Красный - каскад 0 (ближний)
+                        cascadeColor = float3(1, 0.2f, 0.2f); // ГЉГ°Г Г±Г­Г»Г© - ГЄГ Г±ГЄГ Г¤ 0 (ГЎГ«ГЁГ¦Г­ГЁГ©)
                     } else if (depth <= cascadeSplit1) {
                         shadowPos = input.shadowPos1;
                         cascadeIndex = 1;
-                        cascadeColor = float3(0.2f, 1, 0.2f); // Зеленый - каскад 1
+                        cascadeColor = float3(0.2f, 1, 0.2f); // Г‡ГҐГ«ГҐГ­Г»Г© - ГЄГ Г±ГЄГ Г¤ 1
                     } else if (depth <= cascadeSplit2) {
                         shadowPos = input.shadowPos2;
                         cascadeIndex = 2;
-                        cascadeColor = float3(0.2f, 0.2f, 1); // Синий - каскад 2
+                        cascadeColor = float3(0.2f, 0.2f, 1); // Г‘ГЁГ­ГЁГ© - ГЄГ Г±ГЄГ Г¤ 2
                     } else {
                         shadowPos = input.shadowPos3;
                         cascadeIndex = 3;
-                        cascadeColor = float3(1, 1, 0.2f); // Желтый - каскад 3 (дальний)
+                        cascadeColor = float3(1, 1, 0.2f); // Г†ГҐГ«ГІГ»Г© - ГЄГ Г±ГЄГ Г¤ 3 (Г¤Г Г«ГјГ­ГЁГ©)
                     }
                     
                     float3 projCoords = shadowPos.xyz / shadowPos.w;
@@ -273,7 +276,7 @@ private:
                 float4 texColor = objTexture.Sample(objSampler, input.texCoord);
                 result *= texColor.rgb;
                 
-                // Накладываем цвет каскада на тени (умножаем, чтобы не пересвечивать)
+                // ГЌГ ГЄГ«Г Г¤Г»ГўГ ГҐГ¬ Г¶ГўГҐГІ ГЄГ Г±ГЄГ Г¤Г  Г­Г  ГІГҐГ­ГЁ (ГіГ¬Г­Г®Г¦Г ГҐГ¬, Г·ГІГ®ГЎГ» Г­ГҐ ГЇГҐГ°ГҐГ±ГўГҐГ·ГЁГўГ ГІГј)
                 result *= (0.5f + 0.5f * cascadeColor);
                 
                 return float4(result, 1.0f);

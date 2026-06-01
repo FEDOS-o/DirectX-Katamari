@@ -1,6 +1,7 @@
 #include "Prop.h"
 #include "Game.h"
 #include "ShadowRenderer.h"
+#include "RenderingSystem.h"
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <float.h>
@@ -164,9 +165,48 @@ void Prop::Initialize() {
 void Prop::Update(float deltaTime) {}
 
 void Prop::Draw() {
+    // В Deferred режиме Draw() используется только для отладочных коллайдеров
     if (!game || !game->Camera || !model.IsValid()) return;
-    model.Draw();
     DrawDebugCollider();
+}
+
+void Prop::DrawGeometry(RenderingSystem* rs) {
+    if (!model.IsValid() || !rs) return;
+
+    const auto& meshes = model.GetMeshes();
+    if (meshes.empty()) return;
+
+    Matrix world = Matrix::CreateScale(model.GetScale()) *
+        Matrix::CreateFromYawPitchRoll(model.GetRotation().y,
+            model.GetRotation().x,
+            model.GetRotation().z) *
+        Matrix::CreateTranslation(model.GetPosition());
+
+    // Получаем MaterialManager
+    MaterialManager* matManager = model.GetMaterialManager();
+
+    for (MeshData* mesh : meshes) {
+        if (!mesh->vertexBuffer || !mesh->indexBuffer) continue;
+
+        // Устанавливаем текстуру из материала
+        const MaterialData& mat = matManager->GetMaterial(mesh->materialIndex);
+        if (mat.hasTexture) {
+            ID3D11ShaderResourceView* texture = matManager->GetTexture(mat.diffuseTexturePath);
+            if (texture) {
+                game->Context->PSSetShaderResources(0, 1, &texture);
+            }
+        }
+
+        rs->DrawMeshToGBuffer(game->Context,
+            mesh->vertexBuffer,
+            mesh->indexBuffer,
+            mesh->indexCount,
+            world);
+    }
+
+    // Очищаем текстуру
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    game->Context->PSSetShaderResources(0, 1, &nullSRV);
 }
 
 void Prop::DestroyResources() {
@@ -190,18 +230,15 @@ void Prop::SetPosition(const Vector3& pos) {
 void Prop::DrawShadow() {
     if (!model.IsValid()) return;
 
-    // Получаем меши из модели
     const auto& meshes = model.GetMeshes();
     if (meshes.empty()) return;
 
-    // Получаем world матрицу
     Matrix world = Matrix::CreateScale(model.GetScale()) *
         Matrix::CreateFromYawPitchRoll(model.GetRotation().y,
             model.GetRotation().x,
             model.GetRotation().z) *
         Matrix::CreateTranslation(model.GetPosition());
 
-    // Рисуем каждый меш
     for (MeshData* mesh : meshes) {
         if (!mesh->vertexBuffer || !mesh->indexBuffer) continue;
 
