@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <Skybox.h>
 
+// Game.cpp - Обновленный конструктор
 Game::Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG screenHeight) :
     Instance(hInstance),
     Name(applicationName),
@@ -73,13 +74,16 @@ Game::Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG 
     firstPersonCamera = new FirstPersonCamera(this, Vector3(0, 5, 15));
     Camera = orbitalCamera;
 
-    // В конструкторе Game::Game() после создания SunLight:
+    // Создаем Directional Light и добавляем в систему
+    DirectionalLightComponent* mainLight = new DirectionalLightComponent(this,
+        Vector3(0.5f, -1.0f, 0.3f), Vector4(1, 1, 1, 1), 1.0f, true);
+    AddLight(mainLight);
 
-    SunLight.direction = Vector3(0.5f, -1.0f, 0.3f);
-    SunLight.direction.Normalize();
-    SunLight.ambient = Vector4(0.15f, 0.15f, 0.15f, 1.0f);  // Уменьшен ambient
-    SunLight.diffuse = Vector4(0.9f, 0.9f, 0.9f, 1.0f);     // Немного уменьшен diffuse
-    SunLight.specular = Vector4(0.3f, 0.3f, 0.3f, 1.0f);    // Уменьшен specular
+    // Обновляем SunLight для обратной совместимости с существующим кодом
+    SunLight.direction = mainLight->GetDirection();
+    SunLight.ambient = Vector4(0.15f, 0.15f, 0.15f, 1.0f);
+    SunLight.diffuse = Vector4(0.9f, 0.9f, 0.9f, 1.0f);
+    SunLight.specular = Vector4(0.3f, 0.3f, 0.3f, 1.0f);
 
     PrevTime = std::chrono::steady_clock::now();
     StartTime = PrevTime;
@@ -213,6 +217,9 @@ HRESULT Game::Initialize() {
     return S_OK;
 }
 
+// Game.cpp - Обновленный Update() метод
+// Game.cpp - обновленный Update() метод, добавить вызов UpdateAnimatedLights
+
 void Game::Update() {
     auto currentTime = std::chrono::steady_clock::now();
     float deltaTime = std::chrono::duration_cast<std::chrono::microseconds>(currentTime - PrevTime).count() / 1000000.0f;
@@ -236,6 +243,12 @@ void Game::Update() {
     for (auto* component : components) {
         component->Update(deltaTime);
     }
+
+    // Обновляем все компоненты света
+    UpdateLights(deltaTime);
+
+    // Обновляем анимированные lights
+    UpdateAnimatedLights(deltaTime);
 
     UpdateLight(deltaTime);
     UpdateInternal(deltaTime);
@@ -279,6 +292,8 @@ void Game::RestoreTargets() {
     CreateDepthBuffer();
 }
 
+// Game.cpp - обновленный метод Draw()
+
 void Game::Draw() {
     // 1. Очистка RenderView и основного DepthBuffer
     float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -302,20 +317,24 @@ void Game::Draw() {
     }
     renderingSystem->EndGeometryPass(Context);
 
-    // 4. Lighting Pass — результат в RenderView
-    // Используем основной DepthStencilView для depth test, чтобы forward pass потом работал корректно
+    // 4. Lighting Pass - результат в RenderView
+    // ВАЖНО: включаем blending для накопления света
+    float blendFactor[4] = { 0, 0, 0, 0 };
+    Context->OMSetBlendState(renderingSystem->GetAdditiveBlendState(), blendFactor, 0xffffffff);
+
     Context->OMSetRenderTargets(1, &RenderView, DepthStencilView);
     renderingSystem->RenderLighting(Context, RenderView, SunLight, Camera->GetPosition(),
         CSMShadowMapSRVs[0], ShadowSampler);
 
-    // 5. Skybox — после lighting, перед forward
-    // Рисуем только там, где depth == 1.0 (far plane), не пишем в depth
+    // Выключаем blending для forward pass
+    Context->OMSetBlendState(nullptr, blendFactor, 0xffffffff);
+
+    // 5. Skybox
     if (skybox) {
         skybox->Draw();
     }
 
-    // 6. Forward Pass для прозрачных/специальных объектов
-    // Используем тот же RenderView + DepthStencilView
+    // 6. Forward Pass для прозрачных объектов
     Context->OMSetRenderTargets(1, &RenderView, DepthStencilView);
     for (auto* component : components) {
         component->Draw();
@@ -343,6 +362,7 @@ void Game::Exit() {
     PostQuitMessage(0);
 }
 
+// Game.cpp - Обновленный DestroyResources() метод (добавить очистку lights)
 void Game::DestroyResources() {
     if (orbitalCamera) {
         orbitalCamera->DestroyResources();
@@ -358,6 +378,13 @@ void Game::DestroyResources() {
     for (auto* component : components) {
         component->DestroyResources();
     }
+
+    // Уничтожаем все компоненты света
+    for (auto* light : lightComponents) {
+        delete light;
+    }
+    lightComponents.clear();
+    lightingSystem.Clear();
 
     // Destroy Rendering System
     if (renderingSystem) {
@@ -433,6 +460,35 @@ void Game::SwitchCamera() {
         Vector3 orbitalPos = orbitalCamera->GetPosition();
         firstPersonCamera->SetPosition(orbitalPos);
         Camera = firstPersonCamera;
+    }
+}
+
+void Game::UpdateAnimatedLights(float deltaTime) {
+    static float time = 0;
+    time += deltaTime;
+
+    // Ищем lights по их цвету или позиции для анимации
+    for (auto* light : lightComponents) {
+        PointLightComponent* pointLight = dynamic_cast<PointLightComponent*>(light);
+        if (!pointLight) continue;
+
+        Vector3 pos = pointLight->GetPosition();
+
+        // Анимируем movingLight (красный свет, движется по кругу)
+        if (pointLight->GetColor().x > 0.9f && pointLight->GetColor().y < 0.4f) {
+            float radius = 3.5f;
+            float speed = 1.5f;
+            float newX = cos(time * speed) * radius;
+            float newZ = sin(time * speed) * radius;
+            pointLight->SetPosition(Vector3(newX, 1.5f + sin(time * 3.0f) * 0.5f, newZ));
+        }
+
+        // Анимируем flickerLight (меняем интенсивность)
+        if (pointLight->GetColor().x > 0.9f && pointLight->GetColor().y > 0.9f) {
+            float intensity = 0.6f + sin(time * 15.0f) * 0.3f;
+            intensity = std::max(0.3f, std::min(1.2f, intensity));
+            pointLight->SetIntensity(intensity);
+        }
     }
 }
 
@@ -756,14 +812,22 @@ float Game::GetCascadeSplitDepth(UINT cascade) const {
     return (cascade < CASCADE_COUNT) ? cascades[cascade].splitDepth : 0.0f;
 }
 
+// Game.cpp - Обновленный UpdateLight() метод
 void Game::UpdateLight(float deltaTime) {
-    /*static float lightAngle = 0.0f;
-    lightAngle += deltaTime * 0.2f;
+    // Получаем главный directional light из системы
+    DirectionalLightComponent* mainDir = GetMainDirectionalLight();
+    if (mainDir) {
+        // Синхронизируем SunLight для обратной совместимости
+        SunLight.direction = mainDir->GetDirection();
 
-    SunLight.direction.x = sin(lightAngle) * 0.5f;
-    SunLight.direction.y = -1.0f;
-    SunLight.direction.z = cos(lightAngle) * 0.5f;
-    SunLight.direction.Normalize();*/
+        // Опционально: вращаем свет со временем
+        static float lightAngle = 0.0f;
+        lightAngle += deltaTime * 0.1f;
+
+        Vector3 newDir = Vector3(sin(lightAngle) * 0.5f, -1.0f, cos(lightAngle) * 0.5f);
+        newDir.Normalize();
+        mainDir->SetDirection(newDir);
+    }
 }
 
 void Game::RenderSceneToShadowMap() {

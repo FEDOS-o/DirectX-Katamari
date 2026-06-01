@@ -16,6 +16,11 @@
 #include "Core.h"
 #include "GBuffer.h"
 #include "RenderingSystem.h"
+#include "LightComponent.h"
+#include "DirectionalLightComponent.h"
+#include "PointLightComponent.h"
+#include "SpotLightComponent.h"
+#include "LightingSystem.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -64,7 +69,7 @@ public:
     OrbitalCamera* orbitalCamera = nullptr;
     FirstPersonCamera* firstPersonCamera = nullptr;
     Camera* Camera = nullptr;
-    Skybox* skybox = nullptr;  // Îעהוכüםמו ןמכו הכÿ Skybox
+    Skybox* skybox = nullptr;
 
     ID3D11RenderTargetView* RenderView = nullptr;
     Microsoft::WRL::ComPtr<ID3D11Device> Device;
@@ -78,6 +83,10 @@ public:
     ID3D11ShaderResourceView* SkyboxTexture = nullptr;
 
     RenderingSystem* renderingSystem = nullptr;
+
+    // Light system
+    LightingSystem lightingSystem;
+    std::vector<LightComponent*> lightComponents;
 
     // Shadow resources
     ID3D11SamplerState* ShadowSampler = nullptr;
@@ -143,6 +152,40 @@ public:
 
     void SetShadowWorldMatrix(const Matrix& world);
 
+    // Light system methods
+    void AddLight(LightComponent* light) {
+        if (!light) return;
+        lightComponents.push_back(light);
+        lightingSystem.AddLight(light);
+    }
+
+    void RemoveLight(LightComponent* light) {
+        auto it = std::remove(lightComponents.begin(), lightComponents.end(), light);
+        lightComponents.erase(it, lightComponents.end());
+        lightingSystem.RemoveLight(light);
+    }
+
+    void RemoveAllLights() {
+        lightComponents.clear();
+        lightingSystem.Clear();
+    }
+
+    LightingSystem* GetLightingSystem() { return &lightingSystem; }
+
+    DirectionalLightComponent* GetMainDirectionalLight() const {
+        return lightingSystem.GetMainDirectional();
+    }
+
+    const std::vector<LightComponent*>& GetLights() const { return lightComponents; }
+
+    void UpdateLights(float deltaTime) {
+        lightingSystem.UpdateLights(deltaTime);
+    }
+
+    void FillLightBuffer(LightBuffer& buffer) const {
+        lightingSystem.FillLightBuffer(buffer);
+    }
+
 public:
     Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG screenHeight);
     ~Game();
@@ -163,4 +206,6 @@ public:
     void DestroyResources();
     void Run();
     void SwitchCamera();
+
+    void UpdateAnimatedLights(float deltaTime);
 };

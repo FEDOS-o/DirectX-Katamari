@@ -33,12 +33,12 @@ public:
         ID3D11SamplerState* shadowSampler);
 
     void RenderDebugGBuffer(ID3D11DeviceContext* context, ID3D11RenderTargetView* target, int textureIndex);
-
     void TestDrawRedScreen(ID3D11DeviceContext* context, ID3D11RenderTargetView* target);
     void RenderSimpleFullscreenQuad(ID3D11DeviceContext* context, ID3D11RenderTargetView* target);
 
     GBuffer* GetGBuffer() const { return gBuffer; }
     bool IsInitialized() const { return initialized; }
+    ID3D11BlendState* GetAdditiveBlendState() const { return additiveBlendState; }
 
     const Matrix& GetViewMatrix() const { return currentView; }
     const Matrix& GetProjectionMatrix() const { return currentProjection; }
@@ -57,6 +57,8 @@ private:
     ID3D11VertexShader* geometryVS;
     ID3D11PixelShader* geometryPS;
     ID3D11PixelShader* directionalLightPS;
+    ID3D11PixelShader* pointLightPS;
+    ID3D11PixelShader* spotLightPS;
     ID3D11PixelShader* debugGBufferPS;
 
     ID3D11InputLayout* inputLayout;
