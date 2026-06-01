@@ -42,7 +42,7 @@ int main() {
     if (sunLight) {
         sunLight->SetDirection(Vector3(0.5f, -1.0f, 0.3f));
         sunLight->SetColor(Vector4(1.0f, 0.95f, 0.85f, 1.0f));
-        sunLight->SetIntensity(2.0f);
+        sunLight->SetIntensity(1.0f);
     }
 
     // ============================================

@@ -766,6 +766,7 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
 
     context->VSSetShader(fullscreenVS, nullptr, 0);
 
+    // Camera buffer
     struct CamBuffer {
         Vector3 position;
         float padding;
@@ -775,109 +776,156 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
     context->UpdateSubresource(cameraBuffer, 0, nullptr, &camData, 0, 0);
     context->PSSetConstantBuffers(1, 1, &cameraBuffer);
 
+    // ============================================
+    // DIRECTIONAL LIGHT (с тенями)
+    // ============================================
     if (game) {
-        for (auto* lightComp : game->GetLights()) {
-            DirectionalLightComponent* dirLight = dynamic_cast<DirectionalLightComponent*>(lightComp);
-            if (dirLight) {
-                struct DirLightData {
-                    Vector4 ambient;
-                    Vector4 diffuse;
-                    Vector4 specular;
-                    Vector3 direction;
-                    float padding;
-                    int lightType;
-                    float intensity;
-                    float range;
-                    float spotAngleCos;
-                } data;
+        DirectionalLightComponent* dirLight = game->GetMainDirectionalLight();
+        if (dirLight) {
+            struct DirLightData {
+                Vector4 ambient;
+                Vector4 diffuse;
+                Vector4 specular;
+                Vector3 direction;
+                float padding;
+                int lightType;
+                float intensity;
+                float range;
+                float spotAngleCos;
+            } data;
 
-                data.ambient = Vector4(0.35f, 0.35f, 0.35f, 1.0f);
-                data.diffuse = dirLight->GetColor() * dirLight->GetIntensity();
-                data.specular = Vector4(0.5f, 0.5f, 0.5f, 1.0f);
-                data.direction = dirLight->GetDirection();
-                data.padding = 0.0f;
-                data.lightType = 0;
-                data.intensity = dirLight->GetIntensity();
-                data.range = 100.0f;
-                data.spotAngleCos = -1.0f;
+            data.ambient = Vector4(0.25f, 0.25f, 0.25f, 1.0f);
+            data.diffuse = dirLight->GetColor() * dirLight->GetIntensity();
+            data.specular = Vector4(0.6f, 0.6f, 0.6f, 1.0f);
+            data.direction = dirLight->GetDirection();
+            data.padding = 0.0f;
+            data.lightType = 0;
+            data.intensity = dirLight->GetIntensity();
+            data.range = 100.0f;
+            data.spotAngleCos = -1.0f;
 
-                context->UpdateSubresource(directionalLightBuffer, 0, nullptr, &data, 0, 0);
-                context->PSSetConstantBuffers(0, 1, &directionalLightBuffer);
+            context->UpdateSubresource(directionalLightBuffer, 0, nullptr, &data, 0, 0);
+            context->PSSetConstantBuffers(0, 1, &directionalLightBuffer);
 
-                if (shadowMapSRV) {
-                    context->PSSetShaderResources(4, 1, &shadowMapSRV);
-                    context->PSSetSamplers(1, 1, &shadowSampler);
+            // Shadow buffer for directional light
+            if (shadowLightBuffer && game && shadowMapSRV) {
+                struct ShadowBufferData {
+                    Matrix lightViewProj[4];
+                    Vector4 cascadeSplits;
+                    float shadowBias;
+                    float padding[3];
+                } shadowData;
+
+                for (int i = 0; i < 4; i++) {
+                    shadowData.lightViewProj[i] = (game->GetCascadeLightViewMatrix(i) *
+                        game->GetCascadeLightProjectionMatrix(i)).Transpose();
                 }
+                shadowData.cascadeSplits.x = game->GetCascadeSplitDepth(0);
+                shadowData.cascadeSplits.y = game->GetCascadeSplitDepth(1);
+                shadowData.cascadeSplits.z = game->GetCascadeSplitDepth(2);
+                shadowData.cascadeSplits.w = 1000.0f;
+                shadowData.shadowBias = game->ShadowBias;
 
-                context->PSSetShader(directionalLightPS, nullptr, 0);
-                context->Draw(3, 0);
-                continue;
+                context->UpdateSubresource(shadowLightBuffer, 0, nullptr, &shadowData, 0, 0);
+                context->PSSetConstantBuffers(2, 1, &shadowLightBuffer);
+
+                context->PSSetShaderResources(4, 1, &shadowMapSRV);
+                context->PSSetSamplers(1, 1, &shadowSampler);
             }
 
-            PointLightComponent* pointLight = dynamic_cast<PointLightComponent*>(lightComp);
-            if (pointLight) {
-                struct PointLightData {
-                    Vector4 position;
-                    Vector4 color;
-                    Vector4 attenuation;
-                    Vector3 direction;
-                    float padding;
-                    int lightType;
-                    float intensity;
-                    float range;
-                    float spotAngleCos;
-                } data;
-
-                data.position = Vector4(pointLight->GetPosition().x, pointLight->GetPosition().y, pointLight->GetPosition().z, 1.0f);
-                data.color = Vector4(pointLight->GetColor().x, pointLight->GetColor().y, pointLight->GetColor().z, pointLight->GetIntensity());
-                data.attenuation = Vector4(1.0f, 0.09f, 0.032f, pointLight->GetRange());
-                data.direction = Vector3(0, 0, 0);
-                data.padding = 0.0f;
-                data.lightType = 1;
-                data.intensity = pointLight->GetIntensity();
-                data.range = pointLight->GetRange();
-                data.spotAngleCos = -1.0f;
-
-                context->UpdateSubresource(directionalLightBuffer, 0, nullptr, &data, 0, 0);
-                context->PSSetConstantBuffers(0, 1, &directionalLightBuffer);
-                context->PSSetShader(pointLightPS, nullptr, 0);
-                context->Draw(3, 0);
-                continue;
-            }
-
-            SpotLightComponent* spotLight = dynamic_cast<SpotLightComponent*>(lightComp);
-            if (spotLight) {
-                struct SpotLightData {
-                    Vector4 position;
-                    Vector4 color;
-                    Vector4 attenuation;
-                    Vector4 direction;
-                    int lightType;
-                    float spotFalloff;
-                    float intensity;
-                    float range;
-                } data;
-
-                data.position = Vector4(spotLight->GetPosition().x, spotLight->GetPosition().y, spotLight->GetPosition().z, 1.0f);
-                data.color = Vector4(spotLight->GetColor().x, spotLight->GetColor().y, spotLight->GetColor().z, spotLight->GetIntensity());
-                data.attenuation = Vector4(1.0f, 0.09f, 0.032f, spotLight->GetRange());
-                data.direction = Vector4(spotLight->GetDirection().x, spotLight->GetDirection().y, spotLight->GetDirection().z, cos(spotLight->GetSpotAngle()));
-                data.lightType = 2;
-                data.spotFalloff = 2.0f;
-                data.intensity = spotLight->GetIntensity();
-                data.range = spotLight->GetRange();
-
-                context->UpdateSubresource(directionalLightBuffer, 0, nullptr, &data, 0, 0);
-                context->PSSetConstantBuffers(0, 1, &directionalLightBuffer);
-                context->PSSetShader(spotLightPS, nullptr, 0);
-                context->Draw(3, 0);
-                continue;
-            }
+            context->PSSetShader(directionalLightPS, nullptr, 0);
+            context->Draw(3, 0);
         }
     }
 
-    ID3D11ShaderResourceView* nullSRV[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
-    context->PSSetShaderResources(0, 5, nullSRV);
+    // ОЧИЩАЕМ shadow map ресурсы ПОСЛЕ directional light
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    context->PSSetShaderResources(4, 1, &nullSRV);
+    ID3D11SamplerState* nullSampler = nullptr;
+    context->PSSetSamplers(1, 1, &nullSampler);
+
+    // ============================================
+    // POINT LIGHTS
+    // ============================================
+    if (game) {
+        for (auto* lightComp : game->GetLights()) {
+            PointLightComponent* pointLight = dynamic_cast<PointLightComponent*>(lightComp);
+            if (!pointLight) continue;
+
+            struct PointLightData {
+                Vector4 position;
+                Vector4 color;
+                Vector4 attenuation;
+                Vector3 direction;
+                float padding;
+                int lightType;
+                float intensity;
+                float range;
+                float spotAngleCos;
+            } data;
+
+            data.position = Vector4(pointLight->GetPosition().x, pointLight->GetPosition().y, pointLight->GetPosition().z, 1.0f);
+            data.color = Vector4(pointLight->GetColor().x, pointLight->GetColor().y, pointLight->GetColor().z, pointLight->GetIntensity());
+            data.attenuation = Vector4(1.0f, 0.09f, 0.032f, pointLight->GetRange());
+            data.direction = Vector3(0, 0, 0);
+            data.padding = 0.0f;
+            data.lightType = 1;
+            data.intensity = pointLight->GetIntensity();
+            data.range = pointLight->GetRange();
+            data.spotAngleCos = -1.0f;
+
+            context->UpdateSubresource(directionalLightBuffer, 0, nullptr, &data, 0, 0);
+            context->PSSetConstantBuffers(0, 1, &directionalLightBuffer);
+
+            // Убираем shadow resources для point light (тени не используем)
+            context->PSSetShaderResources(4, 1, &nullSRV);
+
+            context->PSSetShader(pointLightPS, nullptr, 0);
+            context->Draw(3, 0);
+        }
+    }
+
+    // ============================================
+    // SPOT LIGHTS
+    // ============================================
+    if (game) {
+        for (auto* lightComp : game->GetLights()) {
+            SpotLightComponent* spotLight = dynamic_cast<SpotLightComponent*>(lightComp);
+            if (!spotLight) continue;
+
+            struct SpotLightData {
+                Vector4 position;
+                Vector4 color;
+                Vector4 attenuation;
+                Vector4 direction;
+                int lightType;
+                float spotFalloff;
+                float intensity;
+                float range;
+            } data;
+
+            data.position = Vector4(spotLight->GetPosition().x, spotLight->GetPosition().y, spotLight->GetPosition().z, 1.0f);
+            data.color = Vector4(spotLight->GetColor().x, spotLight->GetColor().y, spotLight->GetColor().z, spotLight->GetIntensity());
+            data.attenuation = Vector4(1.0f, 0.09f, 0.032f, spotLight->GetRange());
+            data.direction = Vector4(spotLight->GetDirection().x, spotLight->GetDirection().y, spotLight->GetDirection().z, cos(spotLight->GetSpotAngle()));
+            data.lightType = 2;
+            data.spotFalloff = 2.0f;
+            data.intensity = spotLight->GetIntensity();
+            data.range = spotLight->GetRange();
+
+            context->UpdateSubresource(directionalLightBuffer, 0, nullptr, &data, 0, 0);
+            context->PSSetConstantBuffers(0, 1, &directionalLightBuffer);
+
+            context->PSSetShaderResources(4, 1, &nullSRV);
+
+            context->PSSetShader(spotLightPS, nullptr, 0);
+            context->Draw(3, 0);
+        }
+    }
+
+    // Очищаем все ресурсы
+    ID3D11ShaderResourceView* nullTextures[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
+    context->PSSetShaderResources(0, 5, nullTextures);
 }
 
 void RenderingSystem::RenderDebugGBuffer(ID3D11DeviceContext* context,

@@ -294,51 +294,55 @@ void Game::RestoreTargets() {
 
 // Game.cpp - обновленный метод Draw()
 
+// Game.cpp - метод Draw()
+
 void Game::Draw() {
-    // 1. Очистка RenderView и основного DepthBuffer
     float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
     Context->ClearRenderTargetView(RenderView, clearColor);
     Context->ClearDepthStencilView(DepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-    // 2. Shadow Pass (CSM)
+    // Shadow Pass (CSM)
     UpdateCascades();
     for (UINT cascade = 0; cascade < CASCADE_COUNT; ++cascade) {
         PrepareCSMShadowPass(cascade);
         if (ShadowRendererComp) ShadowRendererComp->BeginShadowPass(this);
+
+        // ВАЖНО: устанавливаем константный буфер с матрицами для текущего каскада
+        ShadowConstantBuffer shadowCB;
+        for (int i = 0; i < 4; i++) {
+            shadowCB.lightView[i] = cascades[cascade].viewMatrix.Transpose();
+            shadowCB.lightProjection[i] = cascades[cascade].projMatrix.Transpose();
+        }
+        Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
         Context->VSSetConstantBuffers(0, 1, &shadowConstantBuffer);
+
         for (auto* component : components) component->DrawShadow();
         if (ShadowRendererComp) ShadowRendererComp->EndShadowPass(this);
     }
 
-    // 3. Geometry Pass в GBuffer
+    // Geometry Pass
     renderingSystem->BeginGeometryPass(Context, Camera->GetViewMatrix(), Camera->GetProjectionMatrix());
     for (auto* component : components) {
         component->DrawGeometry(renderingSystem);
     }
     renderingSystem->EndGeometryPass(Context);
 
-    // 4. Lighting Pass - результат в RenderView
-    // ВАЖНО: включаем blending для накопления света
+    // Lighting Pass
     float blendFactor[4] = { 0, 0, 0, 0 };
     Context->OMSetBlendState(renderingSystem->GetAdditiveBlendState(), blendFactor, 0xffffffff);
-
     Context->OMSetRenderTargets(1, &RenderView, DepthStencilView);
-    renderingSystem->RenderLighting(Context, RenderView, SunLight, Camera->GetPosition(),
-        CSMShadowMapSRVs[0], ShadowSampler);
 
-    // Выключаем blending для forward pass
+    // ВАЖНО: передаем правильный SRV (Texture2DArray для CSM)
+    renderingSystem->RenderLighting(Context, RenderView, SunLight, Camera->GetPosition(),
+        CSMShadowMapSRVs[0],  // Весь массив каскадов
+        ShadowSampler);
+
     Context->OMSetBlendState(nullptr, blendFactor, 0xffffffff);
 
-    // 5. Skybox
-    if (skybox) {
-        skybox->Draw();
-    }
-
-    // 6. Forward Pass для прозрачных объектов
+    // Skybox и Forward pass
+    if (skybox) skybox->Draw();
     Context->OMSetRenderTargets(1, &RenderView, DepthStencilView);
-    for (auto* component : components) {
-        component->Draw();
-    }
+    for (auto* component : components) component->Draw();
 }
 
 void Game::EndFrame() {
@@ -777,6 +781,7 @@ void Game::UpdateCascades() {
 void Game::PrepareCSMShadowPass(UINT cascade) {
     if (!Context || cascade >= CASCADE_COUNT) return;
 
+    // Нормальная очистка глубины (1.0f, а не 0.5f)
     Context->ClearDepthStencilView(CSMShadowMapDSVs[cascade], D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     ID3D11RenderTargetView* nullRTV[1] = { nullptr };
@@ -790,14 +795,6 @@ void Game::PrepareCSMShadowPass(UINT cascade) {
     viewport.TopLeftX = 0;
     viewport.TopLeftY = 0;
     Context->RSSetViewports(1, &viewport);
-
-    ShadowConstantBuffer shadowCB;
-    for (int i = 0; i < 4; i++) {
-        shadowCB.lightView[i] = cascades[cascade].viewMatrix.Transpose();
-        shadowCB.lightProjection[i] = cascades[cascade].projMatrix.Transpose();
-    }
-    Context->UpdateSubresource(shadowConstantBuffer, 0, nullptr, &shadowCB, 0, 0);
-    Context->VSSetConstantBuffers(0, 1, &shadowConstantBuffer);
 }
 
 Matrix Game::GetCascadeLightViewMatrix(UINT cascade) const {

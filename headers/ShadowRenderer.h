@@ -91,8 +91,8 @@ namespace Render {
             rastDesc.CullMode = D3D11_CULL_BACK;
             rastDesc.FillMode = D3D11_FILL_SOLID;
             rastDesc.DepthClipEnable = true;
-            rastDesc.DepthBias = 80;           // С 10000 до 100
-            rastDesc.SlopeScaledDepthBias = 0.4f;  // С 2.0 до 0.5
+            rastDesc.DepthBias = 1000;           // С 10000 до 100
+            rastDesc.SlopeScaledDepthBias = 0.1f;  // С 2.0 до 0.5
             rastDesc.DepthBiasClamp = 0.0f;
             rastDesc.FrontCounterClockwise = false;
 
