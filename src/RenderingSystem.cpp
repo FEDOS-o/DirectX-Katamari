@@ -250,7 +250,7 @@ HRESULT RenderingSystem::CreateShaders() {
             }
             
             float4 normalData = normalTex.Sample(linearSampler, input.texCoord);
-            float3 normal = normalize(normalData.xyz * 2.0f - 1.0f);
+            float3 normal = normalize(normalData.xyz);
             
             float4 worldPosData = worldPosTex.Sample(linearSampler, input.texCoord);
             float3 worldPosition = worldPosData.xyz;
