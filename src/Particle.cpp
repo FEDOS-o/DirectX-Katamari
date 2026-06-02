@@ -2,6 +2,7 @@
 #include "Particle.h"
 #include "Game.h"
 #include "Camera.h"
+#include "RenderingSystem.h"
 #include <d3dcompiler.h>
 #include <algorithm>
 #include <cmath>
@@ -52,7 +53,10 @@ ParticleEmitter::ParticleEmitter(Game* game, const Vector3& position)
     , additiveBlendState(nullptr)
     , depthState(nullptr)
     , currentParticleCount(0)
-    , initialized(false) {
+    , initialized(false)
+    , restitution(0.65f)
+    , friction(0.95f)
+    , useGBufferCollision(true) {
 
     std::random_device rd;
     rng.seed(rd());
@@ -77,7 +81,6 @@ void ParticleEmitter::CreateGeometryBuffers() {
 
     game->Device->CreateBuffer(&vertexDesc, nullptr, &vertexBuffer);
 
-    // Индексный буфер для всех квадов
     std::vector<UINT> indices;
     indices.reserve(maxIndices);
     for (int i = 0; i < maxParticles; i++) {
@@ -100,7 +103,6 @@ void ParticleEmitter::CreateGeometryBuffers() {
 }
 
 void ParticleEmitter::CreateShaders() {
-    // Vertex Shader - передаем позицию в world space, а также размер и цвет
     const char* vsCode = R"(
         cbuffer VSConstantBuffer : register(b0) {
             float4x4 view;
@@ -124,12 +126,11 @@ void ParticleEmitter::CreateShaders() {
             float4 viewPos = mul(worldPos, view);
             output.position = mul(viewPos, projection);
             output.color = input.color;
-            output.depth = viewPos.z;  // Сохраняем глубину для отладки
+            output.depth = viewPos.z;
             return output;
         }
     )";
 
-    // Pixel Shader - просто возвращает цвет
     const char* psCode = R"(
         struct VSOutput {
             float4 position : SV_POSITION;
@@ -154,7 +155,6 @@ void ParticleEmitter::CreateShaders() {
     game->Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &vertexShader);
     game->Device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &pixelShader);
 
-    // Input layout - только позиция и цвет
     D3D11_INPUT_ELEMENT_DESC elements[] = {
         {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
         {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0}
@@ -165,18 +165,16 @@ void ParticleEmitter::CreateShaders() {
     vsBlob->Release();
     psBlob->Release();
 
-    // Константный буфер
     D3D11_BUFFER_DESC cbDesc = {};
     cbDesc.Usage = D3D11_USAGE_DEFAULT;
     cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    cbDesc.ByteWidth = sizeof(Matrix) * 2; // view + projection
+    cbDesc.ByteWidth = sizeof(Matrix) * 2;
     game->Device->CreateBuffer(&cbDesc, nullptr, &vsConstantBuffer);
 }
 
 void ParticleEmitter::CreateStates() {
     if (!game || !game->Device) return;
 
-    // Аддитивное смешивание (эффект свечения)
     D3D11_BLEND_DESC blendDesc = {};
     blendDesc.RenderTarget[0].BlendEnable = true;
     blendDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
@@ -189,13 +187,10 @@ void ParticleEmitter::CreateStates() {
 
     game->Device->CreateBlendState(&blendDesc, &additiveBlendState);
 
-    // Depth state - частицы проверяют глубину, НО НЕ ПИШУТ в нее
-    // Это позволяет частицам быть перекрытыми геометрией,
-    // но не перекрывать друг друга (что для прозрачных объектов нормально)
     D3D11_DEPTH_STENCIL_DESC dsDesc = {};
-    dsDesc.DepthEnable = true;                    // ВКЛЮЧАЕМ проверку глубины
-    dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;  // НЕ пишем в depth buffer
-    dsDesc.DepthFunc = D3D11_COMPARISON_LESS;     // Стандартное сравнение (ближе -> видимо)
+    dsDesc.DepthEnable = true;
+    dsDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    dsDesc.DepthFunc = D3D11_COMPARISON_LESS;
     dsDesc.StencilEnable = false;
 
     game->Device->CreateDepthStencilState(&dsDesc, &depthState);
@@ -220,17 +215,14 @@ void ParticleEmitter::EmitParticle() {
 
     Particle& p = particles[currentParticleCount];
 
-    // Позиция с небольшим разбросом
     p.position = emitterPosition;
     p.position.x += (dist(rng) - 0.5f) * 0.5f;
     p.position.z += (dist(rng) - 0.5f) * 0.5f;
 
-    // Скорость
     float speed = particleSpeedMin + dist(rng) * (particleSpeedMax - particleSpeedMin);
 
-    // Направление - конус вверх
-    float angleH = (dist(rng) - 0.5f) * 0.8f;   // горизонтальный разброс
-    float angleV = 0.5f + dist(rng) * 0.8f;     // вертикальный угол (0.5-1.3 рад)
+    float angleH = (dist(rng) - 0.5f) * 0.8f;
+    float angleV = 0.5f + dist(rng) * 0.8f;
 
     Vector3 dir;
     dir.x = sin(angleH) * cos(angleV);
@@ -238,7 +230,6 @@ void ParticleEmitter::EmitParticle() {
     dir.z = cos(angleH) * cos(angleV);
     dir.Normalize();
 
-    // Смешиваем с направлением эмиттера
     dir = (emitterDirection + dir * 0.6f);
     dir.Normalize();
 
@@ -254,26 +245,126 @@ void ParticleEmitter::EmitParticle() {
     currentParticleCount++;
 }
 
-void ParticleEmitter::Update(float deltaTime) {
-    if (!initialized) return;
-
-    // Эмиссия
-    timeSinceLastEmission += deltaTime;
-    float timePerParticle = 1.0f / particlesPerSecond;
-
-    while (timeSinceLastEmission >= timePerParticle && currentParticleCount < maxParticles) {
-        EmitParticle();
-        timeSinceLastEmission -= timePerParticle;
+void ParticleEmitter::UpdateParticlesWithGBuffer(float deltaTime) {
+    if (!game->renderingSystem || !game->renderingSystem->GetGBuffer()) {
+        UpdateParticlesSimple(deltaTime);
+        return;
     }
 
-    // Обновление частиц
+    GBuffer* gbuffer = game->renderingSystem->GetGBuffer();
+
+    ID3D11ShaderResourceView* depthSRV = gbuffer->GetDepthSRV();
+    ID3D11ShaderResourceView* normalSRV = gbuffer->GetSRV(GBuffer::NORMAL);
+
+    if (!depthSRV || !normalSRV) {
+        UpdateParticlesSimple(deltaTime);
+        return;
+    }
+
+    ID3D11Texture2D* depthTexture = nullptr;
+    ID3D11Texture2D* normalTexture = nullptr;
+    depthSRV->GetResource((ID3D11Resource**)&depthTexture);
+    normalSRV->GetResource((ID3D11Resource**)&normalTexture);
+
+    if (!depthTexture || !normalTexture) {
+        if (depthTexture) depthTexture->Release();
+        if (normalTexture) normalTexture->Release();
+        UpdateParticlesSimple(deltaTime);
+        return;
+    }
+
+    D3D11_TEXTURE2D_DESC depthDesc, normalDesc;
+    depthTexture->GetDesc(&depthDesc);
+    normalTexture->GetDesc(&normalDesc);
+
+    int width = depthDesc.Width;
+    int height = depthDesc.Height;
+
+    ID3D11Texture2D* stagingDepth = nullptr;
+    D3D11_TEXTURE2D_DESC stagingDesc = depthDesc;
+    stagingDesc.Usage = D3D11_USAGE_STAGING;
+    stagingDesc.BindFlags = 0;
+    stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+    HRESULT hr = game->Device->CreateTexture2D(&stagingDesc, nullptr, &stagingDepth);
+    if (FAILED(hr)) {
+        depthTexture->Release();
+        normalTexture->Release();
+        UpdateParticlesSimple(deltaTime);
+        return;
+    }
+
+    ID3D11Texture2D* stagingNormal = nullptr;
+    stagingDesc = normalDesc;
+    stagingDesc.Usage = D3D11_USAGE_STAGING;
+    stagingDesc.BindFlags = 0;
+    stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    hr = game->Device->CreateTexture2D(&stagingDesc, nullptr, &stagingNormal);
+    if (FAILED(hr)) {
+        stagingDepth->Release();
+        depthTexture->Release();
+        normalTexture->Release();
+        UpdateParticlesSimple(deltaTime);
+        return;
+    }
+
+    game->Context->CopyResource(stagingDepth, depthTexture);
+    game->Context->CopyResource(stagingNormal, normalTexture);
+
+    D3D11_MAPPED_SUBRESOURCE mappedDepth, mappedNormal;
+    hr = game->Context->Map(stagingDepth, 0, D3D11_MAP_READ, 0, &mappedDepth);
+    if (FAILED(hr)) {
+        stagingDepth->Release();
+        stagingNormal->Release();
+        depthTexture->Release();
+        normalTexture->Release();
+        UpdateParticlesSimple(deltaTime);
+        return;
+    }
+
+    hr = game->Context->Map(stagingNormal, 0, D3D11_MAP_READ, 0, &mappedNormal);
+    if (FAILED(hr)) {
+        game->Context->Unmap(stagingDepth, 0);
+        stagingDepth->Release();
+        stagingNormal->Release();
+        depthTexture->Release();
+        normalTexture->Release();
+        UpdateParticlesSimple(deltaTime);
+        return;
+    }
+
+    float* depthData = (float*)mappedDepth.pData;
+    uint16_t* normalDataHalf = (uint16_t*)mappedNormal.pData;
+
+    auto HalfToFloat = [](uint16_t half) -> float {
+        unsigned int sign = (half >> 15) & 0x1;
+        unsigned int exponent = (half >> 10) & 0x1F;
+        unsigned int mantissa = half & 0x3FF;
+
+        if (exponent == 0) {
+            if (mantissa == 0) return 0.0f;
+            float result = (float)mantissa / 1024.0f;
+            result *= powf(2.0f, -14.0f);
+            return sign ? -result : result;
+        }
+        else if (exponent == 31) {
+            return sign ? -INFINITY : INFINITY;
+        }
+
+        int floatExp = exponent - 15 + 127;
+        unsigned int floatBits = (sign << 31) | (floatExp << 23) | (mantissa << 13);
+        return *(float*)&floatBits;
+        };
+
+    Matrix viewProj = game->Camera->GetViewMatrix() * game->Camera->GetProjectionMatrix();
+    Matrix invViewProj = viewProj.Invert();
+
     for (int i = 0; i < currentParticleCount; i++) {
         Particle& p = particles[i];
 
         p.life -= deltaTime;
 
         if (p.life <= 0) {
-            // Удаляем
             if (i < currentParticleCount - 1) {
                 particles[i] = particles[currentParticleCount - 1];
             }
@@ -282,11 +373,161 @@ void ParticleEmitter::Update(float deltaTime) {
             continue;
         }
 
-        // Физика
+        Vector3 oldPos = p.position;
+        p.velocity += p.acceleration * deltaTime;
+        Vector3 newPos = p.position + p.velocity * deltaTime;
+
+        // SWEPT COLLISION: проверяем несколько точек на линии движения
+        Vector3 dir = newPos - oldPos;
+        float dist = dir.Length();
+
+        if (dist > 0.01f) {
+            dir /= dist;
+
+            // Количество шагов зависит от скорости и размера частицы
+            int steps = std::max(5, (int)(dist / (p.size * 0.3f)) + 1);
+            steps = std::min(steps, 30); // Не больше 30 шагов
+
+            bool collision = false;
+            Vector3 hitNormal(0, 1, 0);
+            Vector3 hitPos;
+            float hitT = 1.0f;
+
+            // Проверяем каждую точку на линии
+            for (int step = 1; step <= steps; step++) {
+                float t = (float)step / steps;
+                Vector3 checkPos = oldPos + dir * (dist * t);
+
+                Vector4 clipPos = Vector4::Transform(Vector4(checkPos.x, checkPos.y, checkPos.z, 1.0f), viewProj);
+
+                if (clipPos.w > 0) {
+                    Vector3 ndc = Vector3(clipPos.x / clipPos.w, clipPos.y / clipPos.w, clipPos.z / clipPos.w);
+
+                    int texX = (int)((ndc.x * 0.5f + 0.5f) * width);
+                    int texY = (int)((1.0f - (ndc.y * 0.5f + 0.5f)) * height);
+
+                    texX = std::clamp(texX, 0, width - 1);
+                    texY = std::clamp(texY, 0, height - 1);
+
+                    int depthPitch = mappedDepth.RowPitch / sizeof(float);
+                    int depthIdx = texY * depthPitch + texX;
+
+                    if (depthIdx >= 0 && depthIdx < (width * height * 4)) {
+                        float sceneDepth = depthData[depthIdx];
+                        float particleDepth = clipPos.z / clipPos.w;
+
+                        if (sceneDepth < 0.999f && sceneDepth > 0 && particleDepth > sceneDepth) {
+                            collision = true;
+                            hitT = t;
+
+                            // Получаем позицию и нормаль в точке удара
+                            Vector3 ndcSurface(ndc.x, ndc.y, sceneDepth);
+                            Vector4 clipSurfacePos(ndcSurface.x * 2.0f - 1.0f,
+                                1.0f - ndcSurface.y * 2.0f,
+                                ndcSurface.z, 1.0f);
+                            Vector4 worldSurfacePos = Vector4::Transform(clipSurfacePos, invViewProj);
+
+                            if (worldSurfacePos.w != 0) {
+                                hitPos = Vector3(worldSurfacePos.x / worldSurfacePos.w,
+                                    worldSurfacePos.y / worldSurfacePos.w,
+                                    worldSurfacePos.z / worldSurfacePos.w);
+
+                                int normalPitch = mappedNormal.RowPitch / sizeof(uint16_t);
+                                int normalBaseIdx = texY * normalPitch + texX * 4;
+
+                                hitNormal = Vector3(
+                                    HalfToFloat(normalDataHalf[normalBaseIdx + 0]) * 2.0f - 1.0f,
+                                    HalfToFloat(normalDataHalf[normalBaseIdx + 1]) * 2.0f - 1.0f,
+                                    HalfToFloat(normalDataHalf[normalBaseIdx + 2]) * 2.0f - 1.0f
+                                );
+                                hitNormal.Normalize();
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (collision) {
+                float particleRadius = p.size * 0.5f;
+
+                // Позиция в момент удара
+                Vector3 collisionPos = oldPos + dir * (dist * hitT);
+                p.position = hitPos + hitNormal * (particleRadius + 0.05f);
+
+                // Отскок с учетом скорости в момент удара
+                Vector3 velAtCollision = p.velocity;
+                float speedAlongNormal = velAtCollision.Dot(hitNormal);
+
+                if (speedAlongNormal < 0) {
+                    // Сильный отскок
+                    float bounceStrength = restitution * 1.3f;
+                    Vector3 newVelocity = velAtCollision - hitNormal * speedAlongNormal * (1.0f + bounceStrength);
+
+                    // Добавляем случайность
+                    newVelocity.x += (this->dist(rng) - 0.5f) * 1.5f;
+                    newVelocity.z += (this->dist(rng) - 0.5f) * 1.5f;
+
+                    Vector3 normalComp = hitNormal * newVelocity.Dot(hitNormal);
+                    Vector3 tangentComp = newVelocity - normalComp;
+                    p.velocity = normalComp + tangentComp * friction;
+
+                    // Минимальный импульс чтобы не залипало
+                    if (p.velocity.Length() < 1.0f) {
+                        p.velocity = hitNormal * 3.0f;
+                    }
+                }
+            }
+            else {
+                p.position = newPos;
+            }
+        }
+        else {
+            p.position = newPos;
+        }
+
+        // Fallback для пола
+        if (p.position.y <= groundY) {
+            p.position.y = groundY + p.size * 0.5f;
+            if (p.velocity.y < 0) {
+                p.velocity.y = -p.velocity.y * bounceDamping * 1.2f;
+            }
+            if (std::abs(p.velocity.y) < 1.0f) {
+                p.velocity.y = 3.0f;
+            }
+        }
+
+        float t = 1.0f - (p.life / p.maxLife);
+        p.color = Vector4::Lerp(startColor, endColor, t);
+    }
+
+    game->Context->Unmap(stagingDepth, 0);
+    game->Context->Unmap(stagingNormal, 0);
+
+    stagingDepth->Release();
+    stagingNormal->Release();
+    depthTexture->Release();
+    normalTexture->Release();
+}
+
+void ParticleEmitter::UpdateParticlesSimple(float deltaTime) {
+    for (int i = 0; i < currentParticleCount; i++) {
+        Particle& p = particles[i];
+
+        p.life -= deltaTime;
+
+        if (p.life <= 0) {
+            if (i < currentParticleCount - 1) {
+                particles[i] = particles[currentParticleCount - 1];
+            }
+            currentParticleCount--;
+            i--;
+            continue;
+        }
+
         p.velocity += p.acceleration * deltaTime;
         p.position += p.velocity * deltaTime;
 
-        // Отскок от пола
         if (p.position.y <= groundY) {
             p.position.y = groundY;
             p.velocity.y = -p.velocity.y * bounceDamping;
@@ -296,9 +537,27 @@ void ParticleEmitter::Update(float deltaTime) {
             }
         }
 
-        // Интерполяция цвета
         float t = 1.0f - (p.life / p.maxLife);
         p.color = Vector4::Lerp(startColor, endColor, t);
+    }
+}
+
+void ParticleEmitter::Update(float deltaTime) {
+    if (!initialized) return;
+
+    timeSinceLastEmission += deltaTime;
+    float timePerParticle = 1.0f / particlesPerSecond;
+
+    while (timeSinceLastEmission >= timePerParticle && currentParticleCount < maxParticles) {
+        EmitParticle();
+        timeSinceLastEmission -= timePerParticle;
+    }
+
+    if (useGBufferCollision && game->renderingSystem && game->renderingSystem->GetGBuffer()) {
+        UpdateParticlesWithGBuffer(deltaTime);
+    }
+    else {
+        UpdateParticlesSimple(deltaTime);
     }
 }
 
@@ -311,7 +570,6 @@ void ParticleEmitter::UpdateVertexBuffer() {
 
     ParticleVertex* vertices = (ParticleVertex*)mapped.pData;
 
-    // Получаем направления камеры для билбордов
     Vector3 camRight, camUp;
     if (game->Camera) {
         Vector3 camPos = game->Camera->GetPosition();
@@ -334,7 +592,6 @@ void ParticleEmitter::UpdateVertexBuffer() {
         Vector3 halfRight = camRight * p.size * 0.5f;
         Vector3 halfUp = camUp * p.size * 0.5f;
 
-        // 4 вершины квадрата (билборд)
         vertices[baseIdx + 0].position = center - halfRight - halfUp;
         vertices[baseIdx + 0].color = p.color;
 
@@ -356,7 +613,6 @@ void ParticleEmitter::Draw() {
 
     UpdateVertexBuffer();
 
-    // Сохраняем текущее состояние
     ID3D11BlendState* oldBlendState = nullptr;
     float oldBlendFactor[4];
     UINT oldSampleMask;
@@ -366,12 +622,10 @@ void ParticleEmitter::Draw() {
     UINT oldStencilRef;
     game->Context->OMGetDepthStencilState(&oldDepthState, &oldStencilRef);
 
-    // Устанавливаем состояние для частиц
     float blendFactor[4] = { 0, 0, 0, 0 };
     game->Context->OMSetBlendState(additiveBlendState, blendFactor, 0xffffffff);
     game->Context->OMSetDepthStencilState(depthState, 0);
 
-    // Матрицы
     Matrix view = game->Camera->GetViewMatrix();
     Matrix proj = game->Camera->GetProjectionMatrix();
 
@@ -384,7 +638,6 @@ void ParticleEmitter::Draw() {
 
     game->Context->UpdateSubresource(vsConstantBuffer, 0, nullptr, &vsData, 0, 0);
 
-    // Отрисовка
     UINT stride = sizeof(ParticleVertex);
     UINT offset = 0;
     game->Context->IASetVertexBuffers(0, 1, &vertexBuffer, &stride, &offset);
@@ -399,7 +652,6 @@ void ParticleEmitter::Draw() {
 
     game->Context->DrawIndexed(currentParticleCount * 6, 0, 0);
 
-    // Восстанавливаем состояние
     game->Context->OMSetBlendState(oldBlendState, oldBlendFactor, oldSampleMask);
     game->Context->OMSetDepthStencilState(oldDepthState, oldStencilRef);
 
@@ -408,12 +660,10 @@ void ParticleEmitter::Draw() {
 }
 
 void ParticleEmitter::DrawGeometry(RenderingSystem* rs) {
-    // Частицы не участвуют в G-Buffer, рисуются в forward pass
     (void)rs;
 }
 
 void ParticleEmitter::DrawShadow() {
-    // Частицы не отбрасывают тени
 }
 
 void ParticleEmitter::DestroyResources() {
@@ -470,13 +720,16 @@ void ParticleEmitter::SetupFountain(const Vector3& pos, const Vector4& color) {
 
     SetEmissionRate(70);
     SetMaxParticles(800);
-    SetSpeedRange(4.0f, 9.0f);
-    SetLifeRange(1.0f, 2.2f);
-    SetSizeRange(0.1f, 0.25f);
+    SetSpeedRange(5.0f, 12.0f);      // Увеличенная скорость
+    SetLifeRange(1.5f, 3.0f);        // Дольше живут
+    SetSizeRange(0.1f, 0.3f);
 
-    // Цвета: от заданного к прозрачному с оттенком
     SetColors(color, Vector4(color.x * 0.5f, color.y * 0.5f, color.z * 0.5f, 0.0f));
 
-    SetGravity(Vector3(0, -13.0f, 0));
-    SetGroundCollision(0.0f, 0.45f);
+    SetGravity(Vector3(0, -10.0f, 0)); // Чуть слабее гравитация
+    SetGroundCollision(0.0f, 0.7f);
+
+    useGBufferCollision = true;
+    restitution = 0.85f;   // Высокая упругость - сильно отскакивают
+    friction = 0.92f;      // Малое трение
 }

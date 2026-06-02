@@ -55,7 +55,7 @@ private:
     float bounceDamping;
     bool useGravity;
 
-    // GPU resources
+    // GPU resources for rendering
     ID3D11Buffer* vertexBuffer;
     ID3D11Buffer* indexBuffer;
     ID3D11InputLayout* inputLayout;
@@ -68,12 +68,19 @@ private:
     int currentParticleCount;
     bool initialized;
 
+    // Physics parameters for G-Buffer collision
+    float restitution;
+    float friction;
+    bool useGBufferCollision;
+
     ID3DBlob* CompileShader(const char* code, const char* target, const char* entry);
     void CreateGeometryBuffers();
     void CreateShaders();
     void CreateStates();
     void UpdateVertexBuffer();
     void EmitParticle();
+    void UpdateParticlesWithGBuffer(float deltaTime);
+    void UpdateParticlesSimple(float deltaTime);
 
 public:
     ParticleEmitter(Game* game, const Vector3& position);
@@ -86,7 +93,7 @@ public:
     void DrawShadow() override;
     void DestroyResources() override;
 
-    // Настройка параметров
+    // Configuration
     void SetEmissionRate(float rate) { particlesPerSecond = rate; }
     void SetMaxParticles(int max) { maxParticles = max; }
     void SetSpeedRange(float minSpeed, float maxSpeed);
@@ -96,7 +103,10 @@ public:
     void SetDirection(const Vector3& dir);
     void SetGravity(const Vector3& grav);
     void SetGroundCollision(float y, float damping);
+    void SetRestitution(float r) { restitution = r; }
+    void SetFriction(float f) { friction = f; }
+    void UseGBufferCollision(bool use) { useGBufferCollision = use; }
 
-    // Быстрая настройка фонтана
+    // Quick setup
     void SetupFountain(const Vector3& pos, const Vector4& color);
 };

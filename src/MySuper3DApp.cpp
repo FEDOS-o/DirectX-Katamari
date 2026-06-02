@@ -234,7 +234,15 @@ int main() {
 
     ParticleEmitter* fountain1 = new ParticleEmitter(&game, Vector3(5.0f, 0.5f, 5.0f));
     fountain1->SetupFountain(Vector3(5.0f, 0.5f, 5.0f), Vector4(1.0f, 0.5f, 0.2f, 1.0f));
+    fountain1->UseGBufferCollision(true);
     game.components.push_back(fountain1);
+
+    // Еще один фонтан над пропом для теста
+    ParticleEmitter* fountain2 = new ParticleEmitter(&game, Vector3(0.0f, 2.0f, 0.0f));
+    fountain2->SetupFountain(Vector3(0.0f, 2.0f, 0.0f), Vector4(0.2f, 0.5f, 1.0f, 1.0f));
+    fountain2->UseGBufferCollision(true);
+    fountain2->SetRestitution(0.7f);
+    game.components.push_back(fountain2);
 
     std::vector<std::string> models = {
         "models/childrens_chair/childrens_chair.obj",
