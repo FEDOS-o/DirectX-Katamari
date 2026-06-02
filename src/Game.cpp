@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <Skybox.h>
 #include <Particle.h>
+#include <KatamariBall.h>
 
 // Game.cpp - Обновленный конструктор
 Game::Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG screenHeight) :
@@ -175,7 +176,6 @@ HRESULT Game::Initialize() {
     res = CreateDepthBuffer();
     if (FAILED(res)) return res;
 
-    // Initialize Deferred Rendering System
     renderingSystem = new RenderingSystem();
     res = renderingSystem->Initialize(this, 800, 800);
     if (FAILED(res)) {
@@ -210,6 +210,7 @@ HRESULT Game::Initialize() {
     ShadowRendererComp = new Render::ShadowRenderer();
     ShadowRendererComp->Initialize(this);
 
+    // Инициализируем все добавленные компоненты
     for (auto* component : components) {
         component->Initialize();
     }
@@ -217,6 +218,7 @@ HRESULT Game::Initialize() {
     return S_OK;
 }
 
+// В Game.cpp, в методе Update() добавить:
 
 void Game::Update() {
     auto currentTime = std::chrono::steady_clock::now();
@@ -236,6 +238,45 @@ void Game::Update() {
         cWasPressed = false;
     }
 
+    // ============================================
+    // PIXEL PICKING - обработка клика мыши
+    // ============================================
+    static bool leftMouseWasPressed = false;
+    if (Input && Input->IsKeyDown(Keys::LeftButton)) {
+        if (!leftMouseWasPressed) {
+            uint32_t pickedId = PickObjectAtMousePosition();
+            if (pickedId != 0) {
+                GameComponent* pickedComponent = GetComponentById(pickedId);
+                if (pickedComponent) {
+                    std::cout << "Picked object with ID: " << pickedId << std::endl;
+
+                    // Можно проверить тип объекта
+                    Prop* pickedProp = dynamic_cast<Prop*>(pickedComponent);
+                    if (pickedProp) {
+                        std::cout << "  -> It's a Prop at position: "
+                            << pickedProp->GetPosition().x << ", "
+                            << pickedProp->GetPosition().y << ", "
+                            << pickedProp->GetPosition().z << std::endl;
+                    }
+
+                    KatamariBall* pickedBall = dynamic_cast<KatamariBall*>(pickedComponent);
+                    if (pickedBall) {
+                        std::cout << "  -> It's the Katamari Ball! Radius: "
+                            << pickedBall->GetRadius()
+                            << ", Attached objects: " << pickedBall->GetAttachedCount() << std::endl;
+                    }
+                }
+            }
+            else {
+                std::cout << "Picked nothing (ID = 0)" << std::endl;
+            }
+            leftMouseWasPressed = true;
+        }
+    }
+    else {
+        leftMouseWasPressed = false;
+    }
+
     Camera->Update(deltaTime);
 
     for (auto* component : components) {
@@ -243,9 +284,7 @@ void Game::Update() {
     }
 
     UpdateLights(deltaTime);
-
     UpdateAnimatedLights(deltaTime);
-
     UpdateLight(deltaTime);
     UpdateInternal(deltaTime);
 }
@@ -288,7 +327,6 @@ void Game::RestoreTargets() {
     CreateDepthBuffer();
 }
 
-
 void Game::Draw() {
     float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
     Context->ClearRenderTargetView(RenderView, clearColor);
@@ -323,6 +361,12 @@ void Game::Draw() {
     }
     renderingSystem->EndGeometryPass(Context);
 
+
+    static bool savedOnce = false;
+    if (!savedOnce) {
+        SaveObjectIdTextureToFile("object_id_debug.ppm");
+        savedOnce = true;
+    }
     // ============================================
     // LIGHTING PASS
     // ============================================
@@ -343,24 +387,20 @@ void Game::Draw() {
     // ============================================
     // FORWARD PASS (частицы и всё прозрачное)
     // ============================================
-    // Просто устанавливаем DepthStencilState для forward рендеринга
     D3D11_DEPTH_STENCIL_DESC forwardDSDesc = {};
     forwardDSDesc.DepthEnable = TRUE;
-    forwardDSDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;  // Не пишем в depth
-    forwardDSDesc.DepthFunc = D3D11_COMPARISON_LESS;              // Читаем depth
+    forwardDSDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    forwardDSDesc.DepthFunc = D3D11_COMPARISON_LESS;
     forwardDSDesc.StencilEnable = FALSE;
 
     ID3D11DepthStencilState* forwardDepthState = nullptr;
     Device->CreateDepthStencilState(&forwardDSDesc, &forwardDepthState);
 
-    // Устанавливаем forward state и используем depth buffer из G-Buffer
     Context->OMSetRenderTargets(1, &RenderView, renderingSystem->GetGBuffer()->GetDepthDSV());
     Context->OMSetDepthStencilState(forwardDepthState, 0);
 
-    // Рисуем все forward-объекты (частицы)
     for (auto* component : components) component->Draw();
 
-    // Не возвращаем старый state - следующий кадр всё перезапишет
     if (forwardDepthState) forwardDepthState->Release();
 }
 
@@ -385,7 +425,6 @@ void Game::Exit() {
     PostQuitMessage(0);
 }
 
-// Game.cpp - Обновленный DestroyResources() метод (добавить очистку lights)
 void Game::DestroyResources() {
     if (orbitalCamera) {
         orbitalCamera->DestroyResources();
@@ -398,9 +437,12 @@ void Game::DestroyResources() {
         firstPersonCamera = nullptr;
     }
 
+    // Уничтожаем все компоненты (Game владеет ими)
     for (auto* component : components) {
         component->DestroyResources();
+        delete component;
     }
+    components.clear();
 
     // Уничтожаем все компоненты света
     for (auto* light : lightComponents) {
@@ -409,7 +451,6 @@ void Game::DestroyResources() {
     lightComponents.clear();
     lightingSystem.Clear();
 
-    // Destroy Rendering System
     if (renderingSystem) {
         renderingSystem->Destroy();
         delete renderingSystem;
@@ -429,7 +470,6 @@ void Game::DestroyResources() {
     if (Display) { delete Display; Display = nullptr; }
     if (Input) { delete Input; Input = nullptr; }
 
-    // Shadow resources
     if (ShadowMapTexture) { ShadowMapTexture->Release(); ShadowMapTexture = nullptr; }
     if (ShadowMapDSV) { ShadowMapDSV->Release(); ShadowMapDSV = nullptr; }
     if (ShadowMapSRV) { ShadowMapSRV->Release(); ShadowMapSRV = nullptr; }
@@ -441,7 +481,6 @@ void Game::DestroyResources() {
     if (ShadowRendererComp) { delete ShadowRendererComp; ShadowRendererComp = nullptr; }
     if (shadowWorldConstantBuffer) { shadowWorldConstantBuffer->Release(); shadowWorldConstantBuffer = nullptr; }
 
-    // CSM resources
     if (CSMShadowMapTexture) { CSMShadowMapTexture->Release(); CSMShadowMapTexture = nullptr; }
     for (int i = 0; i < CASCADE_COUNT; ++i) {
         if (CSMShadowMapDSVs[i]) { CSMShadowMapDSVs[i]->Release(); CSMShadowMapDSVs[i] = nullptr; }
@@ -490,14 +529,12 @@ void Game::UpdateAnimatedLights(float deltaTime) {
     static float time = 0;
     time += deltaTime;
 
-    // Ищем lights по их цвету или позиции для анимации
     for (auto* light : lightComponents) {
         PointLightComponent* pointLight = dynamic_cast<PointLightComponent*>(light);
         if (!pointLight) continue;
 
         Vector3 pos = pointLight->GetPosition();
 
-        // Анимируем movingLight (красный свет, движется по кругу)
         if (pointLight->GetColor().x > 0.9f && pointLight->GetColor().y < 0.4f) {
             float radius = 3.5f;
             float speed = 1.5f;
@@ -506,7 +543,6 @@ void Game::UpdateAnimatedLights(float deltaTime) {
             pointLight->SetPosition(Vector3(newX, 1.5f + sin(time * 3.0f) * 0.5f, newZ));
         }
 
-        // Анимируем flickerLight (меняем интенсивность)
         if (pointLight->GetColor().x > 0.9f && pointLight->GetColor().y > 0.9f) {
             float intensity = 0.6f + sin(time * 15.0f) * 0.3f;
             intensity = std::max(0.3f, std::min(1.2f, intensity));
@@ -514,7 +550,6 @@ void Game::UpdateAnimatedLights(float deltaTime) {
         }
     }
 }
-
 
 // ===== SHADOW MAP METHODS =====
 
@@ -625,7 +660,6 @@ void Game::PrepareShadowPass() {
 }
 
 void Game::SetShadowForRender() {
-    // Устаревший метод
 }
 
 HRESULT Game::CreateShadowShaders() {
@@ -800,7 +834,6 @@ void Game::UpdateCascades() {
 void Game::PrepareCSMShadowPass(UINT cascade) {
     if (!Context || cascade >= CASCADE_COUNT) return;
 
-    // Нормальная очистка глубины (1.0f, а не 0.5f)
     Context->ClearDepthStencilView(CSMShadowMapDSVs[cascade], D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     ID3D11RenderTargetView* nullRTV[1] = { nullptr };
@@ -828,15 +861,11 @@ float Game::GetCascadeSplitDepth(UINT cascade) const {
     return (cascade < CASCADE_COUNT) ? cascades[cascade].splitDepth : 0.0f;
 }
 
-// Game.cpp - Обновленный UpdateLight() метод
 void Game::UpdateLight(float deltaTime) {
-    // Получаем главный directional light из системы
     DirectionalLightComponent* mainDir = GetMainDirectionalLight();
     if (mainDir) {
-        // Синхронизируем SunLight для обратной совместимости
         SunLight.direction = mainDir->GetDirection();
 
-        // Опционально: вращаем свет со временем
         static float lightAngle = 0.0f;
         lightAngle += deltaTime * 0.1f;
 
@@ -847,5 +876,232 @@ void Game::UpdateLight(float deltaTime) {
 }
 
 void Game::RenderSceneToShadowMap() {
-    // Заглушка - если нужна, реализуем позже
+}
+
+// ===== COMPONENT MANAGEMENT METHODS =====
+
+void Game::AddComponent(GameComponent* component) {
+    if (!component) return;
+
+    uint32_t newId = nextComponentId++;
+    component->SetId(newId);
+
+    components.push_back(component);
+
+    if (renderingSystem && renderingSystem->IsInitialized()) {
+        component->Initialize();
+    }
+}
+
+void Game::RemoveComponent(GameComponent* component) {
+    if (!component) return;
+
+    auto it = std::remove(components.begin(), components.end(), component);
+    if (it != components.end()) {
+        components.erase(it, components.end());
+    }
+
+    component->DestroyResources();
+}
+
+void Game::RemoveComponentById(uint32_t id) {
+    GameComponent* comp = GetComponentById(id);
+    if (comp) {
+        RemoveComponent(comp);
+    }
+}
+
+GameComponent* Game::GetComponentById(uint32_t id) const {
+    for (auto* comp : components) {
+        if (comp && comp->GetId() == id) {
+            return comp;
+        }
+    }
+    return nullptr;
+}
+
+
+// Game.cpp - добавить в конец файла
+
+uint32_t Game::PickObjectAtScreenPos(int screenX, int screenY) {
+    if (!renderingSystem || !renderingSystem->GetGBuffer()) return 0;
+
+    GBuffer* gbuffer = renderingSystem->GetGBuffer();
+    ID3D11ShaderResourceView* idSRV = gbuffer->GetSRV(GBuffer::OBJECT_ID);
+    if (!idSRV) {
+        std::cout << "PickObject: idSRV is NULL!" << std::endl;
+        return 0;
+    }
+
+    ID3D11Texture2D* idTexture = nullptr;
+    idSRV->GetResource((ID3D11Resource**)&idTexture);
+    if (!idTexture) {
+        std::cout << "PickObject: idTexture is NULL!" << std::endl;
+        return 0;
+    }
+
+    D3D11_TEXTURE2D_DESC texDesc;
+    idTexture->GetDesc(&texDesc);
+
+    std::cout << "Texture size: " << texDesc.Width << "x" << texDesc.Height
+        << ", Format: " << texDesc.Format << std::endl;
+
+    D3D11_TEXTURE2D_DESC stagingDesc = texDesc;
+    stagingDesc.Usage = D3D11_USAGE_STAGING;
+    stagingDesc.BindFlags = 0;
+    stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+    ID3D11Texture2D* stagingTexture = nullptr;
+    HRESULT hr = Device->CreateTexture2D(&stagingDesc, nullptr, &stagingTexture);
+    if (FAILED(hr)) {
+        std::cout << "PickObject: Failed to create staging texture, HR=" << std::hex << hr << std::endl;
+        idTexture->Release();
+        return 0;
+    }
+
+    Context->CopyResource(stagingTexture, idTexture);
+
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    hr = Context->Map(stagingTexture, 0, D3D11_MAP_READ, 0, &mapped);
+    if (FAILED(hr)) {
+        std::cout << "PickObject: Failed to map staging texture, HR=" << std::hex << hr << std::endl;
+        stagingTexture->Release();
+        idTexture->Release();
+        return 0;
+    }
+
+    // Проверим несколько пикселей для отладки
+    uint32_t* data = (uint32_t*)mapped.pData;
+    int pitch = mapped.RowPitch / sizeof(uint32_t);
+
+    int texX = screenX;
+    int texY = screenY;
+    uint32_t pickedId = 0;
+
+    if (texX >= 0 && texX < (int)texDesc.Width && texY >= 0 && texY < (int)texDesc.Height) {
+        pickedId = data[texY * pitch + texX];
+        std::cout << "Picked at mouse (" << texX << "," << texY << "): ID = " << pickedId << std::endl;
+    }
+    else {
+        std::cout << "Mouse coordinates out of bounds: (" << texX << "," << texY << ")" << std::endl;
+    }
+
+    Context->Unmap(stagingTexture, 0);
+    stagingTexture->Release();
+    idTexture->Release();
+
+    return pickedId;
+}
+
+uint32_t Game::PickObjectAtMousePosition() {
+    if (!Input) return 0;
+
+    POINT mousePos;
+    GetCursorPos(&mousePos);
+    ScreenToClient(Display->Window, &mousePos);
+
+    return PickObjectAtScreenPos(mousePos.x, mousePos.y);
+}
+
+
+void Game::SaveObjectIdTextureToFile(const char* filename) {
+    if (!renderingSystem || !renderingSystem->GetGBuffer()) {
+        std::cout << "SaveObjectIdTexture: No GBuffer!" << std::endl;
+        return;
+    }
+
+    GBuffer* gbuffer = renderingSystem->GetGBuffer();
+    ID3D11ShaderResourceView* idSRV = gbuffer->GetSRV(GBuffer::OBJECT_ID);
+    if (!idSRV) {
+        std::cout << "SaveObjectIdTexture: idSRV is NULL!" << std::endl;
+        return;
+    }
+
+    ID3D11Texture2D* idTexture = nullptr;
+    idSRV->GetResource((ID3D11Resource**)&idTexture);
+    if (!idTexture) {
+        std::cout << "SaveObjectIdTexture: idTexture is NULL!" << std::endl;
+        return;
+    }
+
+    D3D11_TEXTURE2D_DESC texDesc;
+    idTexture->GetDesc(&texDesc);
+
+    std::cout << "Texture: " << texDesc.Width << "x" << texDesc.Height
+        << ", Format: " << texDesc.Format << std::endl;
+
+    // Создаем staging текстуру
+    D3D11_TEXTURE2D_DESC stagingDesc = texDesc;
+    stagingDesc.Usage = D3D11_USAGE_STAGING;
+    stagingDesc.BindFlags = 0;
+    stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    stagingDesc.MiscFlags = 0;
+
+    ID3D11Texture2D* stagingTexture = nullptr;
+    HRESULT hr = Device->CreateTexture2D(&stagingDesc, nullptr, &stagingTexture);
+    if (FAILED(hr)) {
+        std::cout << "Failed to create staging texture, HR=" << std::hex << hr << std::endl;
+        idTexture->Release();
+        return;
+    }
+
+    Context->CopyResource(stagingTexture, idTexture);
+
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    hr = Context->Map(stagingTexture, 0, D3D11_MAP_READ, 0, &mapped);
+    if (FAILED(hr)) {
+        std::cout << "Failed to map texture, HR=" << std::hex << hr << std::endl;
+        stagingTexture->Release();
+        idTexture->Release();
+        return;
+    }
+
+    uint32_t* data = (uint32_t*)mapped.pData;
+    int pitch = mapped.RowPitch / sizeof(uint32_t);
+
+    // Создаем простой PPM файл для просмотра (визуализация ID как цвета)
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        file << "P3\n" << texDesc.Width << " " << texDesc.Height << "\n255\n";
+
+        int nonZeroCount = 0;
+        int totalPixels = texDesc.Width * texDesc.Height;
+
+        for (UINT y = 0; y < texDesc.Height; y++) {
+            for (UINT x = 0; x < texDesc.Width; x++) {
+                uint32_t id = data[y * pitch + x];
+                if (id != 0) nonZeroCount++;
+
+                // Преобразуем ID в цвет (простейший способ увидеть ненулевые значения)
+                int r = (id & 0xFF);
+                int g = ((id >> 8) & 0xFF);
+                int b = ((id >> 16) & 0xFF);
+
+                if (id == 0) {
+                    file << "0 0 0 ";
+                }
+                else {
+                    file << r << " " << g << " " << b << " ";
+                }
+            }
+            file << "\n";
+        }
+        file.close();
+
+        std::cout << "Saved to " << filename << std::endl;
+        std::cout << "Non-zero pixels: " << nonZeroCount << " / " << totalPixels
+            << " (" << (nonZeroCount * 100.0f / totalPixels) << "%)" << std::endl;
+
+        // Выведем первые несколько значений для отладки
+        std::cout << "First 20 pixel values:" << std::endl;
+        for (int i = 0; i < 20 && i < totalPixels; i++) {
+            std::cout << data[i] << " ";
+            if ((i + 1) % 10 == 0) std::cout << std::endl;
+        }
+        std::cout << std::endl;
+    }
+
+    Context->Unmap(stagingTexture, 0);
+    stagingTexture->Release();
+    idTexture->Release();
 }

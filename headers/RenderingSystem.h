@@ -25,6 +25,7 @@ public:
 
     void BeginGeometryPass(ID3D11DeviceContext* context, const Matrix& view, const Matrix& projection);
     void DrawMeshToGBuffer(ID3D11DeviceContext* context, ID3D11Buffer* vertexBuffer, ID3D11Buffer* indexBuffer, UINT indexCount, const Matrix& world);
+    void DrawMeshToGBuffer(ID3D11DeviceContext* context, ID3D11Buffer* vertexBuffer, ID3D11Buffer* indexBuffer, UINT indexCount, const Matrix& world, uint32_t objectId);
     void EndGeometryPass(ID3D11DeviceContext* context);
 
     void RenderLighting(ID3D11DeviceContext* context, ID3D11RenderTargetView* finalRTV,
@@ -42,6 +43,8 @@ public:
 
     const Matrix& GetViewMatrix() const { return currentView; }
     const Matrix& GetProjectionMatrix() const { return currentProjection; }
+
+    void SetObjectId(uint32_t id);
 
 private:
     Game* game;
@@ -67,6 +70,7 @@ private:
     ID3D11Buffer* directionalLightBuffer;
     ID3D11Buffer* cameraBuffer;
     ID3D11Buffer* shadowLightBuffer;
+    ID3D11Buffer* psIdConstantBuffer;
 
     ID3D11SamplerState* linearSampler;
     ID3D11SamplerState* pointSampler;
@@ -79,4 +83,8 @@ private:
     HRESULT CreateShaders();
     HRESULT CreateBuffers();
     HRESULT CreateStates();
+
+    // RenderingSystem.h - добавить в public секцию:
+
+    void RenderDebugObjectID(ID3D11DeviceContext* context, ID3D11RenderTargetView* target);
 };

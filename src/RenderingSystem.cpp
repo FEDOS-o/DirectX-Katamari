@@ -24,6 +24,7 @@ RenderingSystem::RenderingSystem()
     , directionalLightBuffer(nullptr)
     , cameraBuffer(nullptr)
     , shadowLightBuffer(nullptr)
+    , psIdConstantBuffer(nullptr)
     , linearSampler(nullptr)
     , pointSampler(nullptr)
     , additiveBlendState(nullptr)
@@ -137,7 +138,7 @@ HRESULT RenderingSystem::CreateShaders() {
     vsBlob->Release();
 
     // ========================================
-    // 3. GEOMETRY PASS PIXEL SHADER
+    // 3. GEOMETRY PASS PIXEL SHADER (с поддержкой OBJECT_ID)
     // ========================================
     const char* geometryPSCode = R"(
         struct VSOutput {
@@ -153,7 +154,15 @@ HRESULT RenderingSystem::CreateShaders() {
             float4 normal   : SV_TARGET1;
             float4 worldPos : SV_TARGET2;
             float4 specular : SV_TARGET3;
+            uint   objectId : SV_TARGET4;
         };
+
+        cbuffer PSIdConstantBuffer : register(b1) {
+            uint objectId;
+            uint padding1;
+            uint padding2;
+            uint padding3;
+        }
 
         Texture2D objTexture : register(t0);
         SamplerState objSampler : register(s0);
@@ -174,6 +183,7 @@ HRESULT RenderingSystem::CreateShaders() {
             output.normal = float4(normalize(input.worldNormal), 1.0f);
             output.worldPos = float4(input.worldPosition, 1.0f);
             output.specular = float4(0.5f, 0.5f, 0.5f, 32.0f / 255.0f);
+            output.objectId = objectId;
     
             return output;
         }
@@ -540,6 +550,11 @@ HRESULT RenderingSystem::CreateBuffers() {
     hr = device->CreateBuffer(&desc, nullptr, &shadowLightBuffer);
     if (FAILED(hr)) return hr;
 
+    // ID константный буфер для pixel shader
+    desc.ByteWidth = sizeof(uint32_t) * 4;  // 16 bytes aligned
+    hr = device->CreateBuffer(&desc, nullptr, &psIdConstantBuffer);
+    if (FAILED(hr)) return hr;
+
     return S_OK;
 }
 
@@ -648,6 +663,7 @@ void RenderingSystem::Destroy() {
     if (directionalLightBuffer) { directionalLightBuffer->Release(); directionalLightBuffer = nullptr; }
     if (cameraBuffer) { cameraBuffer->Release(); cameraBuffer = nullptr; }
     if (shadowLightBuffer) { shadowLightBuffer->Release(); shadowLightBuffer = nullptr; }
+    if (psIdConstantBuffer) { psIdConstantBuffer->Release(); psIdConstantBuffer = nullptr; }
     if (linearSampler) { linearSampler->Release(); linearSampler = nullptr; }
     if (pointSampler) { pointSampler->Release(); pointSampler = nullptr; }
     if (additiveBlendState) { additiveBlendState->Release(); additiveBlendState = nullptr; }
@@ -668,6 +684,7 @@ void RenderingSystem::Destroy() {
 void RenderingSystem::BeginGeometryPass(ID3D11DeviceContext* context,
     const Matrix& view,
     const Matrix& projection) {
+
     if (!initialized || !context) return;
 
     currentView = view;
@@ -697,6 +714,9 @@ void RenderingSystem::BeginGeometryPass(ID3D11DeviceContext* context,
     context->VSSetShader(geometryVS, nullptr, 0);
     context->PSSetShader(geometryPS, nullptr, 0);
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // Устанавливаем ID буфер (по умолчанию 0)
+    SetObjectId(1);
 }
 
 void RenderingSystem::DrawMeshToGBuffer(ID3D11DeviceContext* context,
@@ -705,8 +725,21 @@ void RenderingSystem::DrawMeshToGBuffer(ID3D11DeviceContext* context,
     UINT indexCount,
     const Matrix& world) {
 
+    DrawMeshToGBuffer(context, vertexBuffer, indexBuffer, indexCount, world, 0);
+}
+
+void RenderingSystem::DrawMeshToGBuffer(ID3D11DeviceContext* context,
+    ID3D11Buffer* vertexBuffer,
+    ID3D11Buffer* indexBuffer,
+    UINT indexCount,
+    const Matrix& world,
+    uint32_t objectId) {
+
     if (!initialized || !context) return;
     if (!vertexBuffer || !indexBuffer) return;
+
+    // Устанавливаем ID объекта для этого вызова
+    SetObjectId(objectId);
 
     VSConstantBuffer cb;
     cb.world = world.Transpose();
@@ -777,7 +810,7 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
     context->PSSetConstantBuffers(1, 1, &cameraBuffer);
 
     // ============================================
-    // DIRECTIONAL LIGHT (с тенями)
+    // DIRECTIONAL LIGHT
     // ============================================
     if (game) {
         DirectionalLightComponent* dirLight = game->GetMainDirectionalLight();
@@ -807,7 +840,6 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
             context->UpdateSubresource(directionalLightBuffer, 0, nullptr, &data, 0, 0);
             context->PSSetConstantBuffers(0, 1, &directionalLightBuffer);
 
-            // Shadow buffer for directional light
             if (shadowLightBuffer && game && shadowMapSRV) {
                 struct ShadowBufferData {
                     Matrix lightViewProj[4];
@@ -838,7 +870,6 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
         }
     }
 
-    // ОЧИЩАЕМ shadow map ресурсы ПОСЛЕ directional light
     ID3D11ShaderResourceView* nullSRV = nullptr;
     context->PSSetShaderResources(4, 1, &nullSRV);
     ID3D11SamplerState* nullSampler = nullptr;
@@ -877,7 +908,6 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
             context->UpdateSubresource(directionalLightBuffer, 0, nullptr, &data, 0, 0);
             context->PSSetConstantBuffers(0, 1, &directionalLightBuffer);
 
-            // Убираем shadow resources для point light (тени не используем)
             context->PSSetShaderResources(4, 1, &nullSRV);
 
             context->PSSetShader(pointLightPS, nullptr, 0);
@@ -923,7 +953,6 @@ void RenderingSystem::RenderLighting(ID3D11DeviceContext* context,
         }
     }
 
-    // Очищаем все ресурсы
     ID3D11ShaderResourceView* nullTextures[5] = { nullptr, nullptr, nullptr, nullptr, nullptr };
     context->PSSetShaderResources(0, 5, nullTextures);
 }
@@ -947,4 +976,138 @@ void RenderingSystem::RenderSimpleFullscreenQuad(ID3D11DeviceContext* context,
     ID3D11RenderTargetView* target) {
     (void)context;
     (void)target;
+}
+
+void RenderingSystem::SetObjectId(uint32_t id) {
+    if (!initialized || !game->Context) return;
+
+    struct IdBuffer {
+        uint32_t objectId;
+        uint32_t padding1;
+        uint32_t padding2;
+        uint32_t padding3;
+    } idData;
+
+    idData.objectId = id;
+    idData.padding1 = idData.padding2 = idData.padding3 = 0;
+
+    game->Context->UpdateSubresource(psIdConstantBuffer, 0, nullptr, &idData, 0, 0);
+    game->Context->PSSetConstantBuffers(1, 1, &psIdConstantBuffer);
+}
+
+
+// RenderingSystem.cpp - добавить в конец файла:
+
+void RenderingSystem::RenderDebugObjectID(ID3D11DeviceContext* context, ID3D11RenderTargetView* target) {
+    if (!initialized || !context || !target) return;
+
+    // Сохраняем текущие состояния
+    ID3D11RenderTargetView* oldRTV = nullptr;
+    ID3D11DepthStencilView* oldDSV = nullptr;
+    context->OMGetRenderTargets(1, &oldRTV, &oldDSV);
+
+    ID3D11BlendState* oldBlendState = nullptr;
+    float oldBlendFactor[4];
+    UINT oldSampleMask;
+    context->OMGetBlendState(&oldBlendState, oldBlendFactor, &oldSampleMask);
+
+    // Устанавливаем target для отображения
+    context->OMSetRenderTargets(1, &target, nullptr);
+    context->OMSetBlendState(nullptr, oldBlendFactor, 0xffffffff);
+
+    // Создаем простой fullscreen quad шейдер для отображения ID как цвета
+    const char* vsCode = R"(
+        struct VSOutput {
+            float4 position : SV_POSITION;
+            float2 texCoord : TEXCOORD0;
+        };
+        VSOutput VSMain(uint vertexID : SV_VertexID) {
+            VSOutput output;
+            float2 uv = float2((vertexID << 1) & 2, vertexID & 2);
+            output.texCoord = uv;
+            output.position = float4(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f, 0.0f, 1.0f);
+            return output;
+        }
+    )";
+
+    const char* psCode = R"(
+        Texture2D<uint> objectIdTex : register(t0);
+        SamplerState pointSampler : register(s0);
+        
+        float4 PSMain(float4 position : SV_POSITION, float2 texCoord : TEXCOORD0) : SV_TARGET {
+            uint id = objectIdTex.Sample(pointSampler, texCoord);
+            // Преобразуем ID в цвет для визуализации
+            float r = float((id >> 0) & 0xFF) / 255.0f;
+            float g = float((id >> 8) & 0xFF) / 255.0f;
+            float b = float((id >> 16) & 0xFF) / 255.0f;
+            float a = 1.0f;
+            
+            // Если ID == 0, показываем черный
+            if (id == 0) {
+                return float4(0, 0, 0, 1);
+            }
+            return float4(r, g, b, a);
+        }
+    )";
+
+    ID3DBlob* vsBlob = nullptr;
+    ID3DBlob* psBlob = nullptr;
+    ID3DBlob* error = nullptr;
+
+    D3DCompile(vsCode, strlen(vsCode), nullptr, nullptr, nullptr, "VSMain", "vs_5_0",
+        D3DCOMPILE_DEBUG, 0, &vsBlob, &error);
+    if (error) error->Release();
+
+    error = nullptr;
+    D3DCompile(psCode, strlen(psCode), nullptr, nullptr, nullptr, "PSMain", "ps_5_0",
+        D3DCOMPILE_DEBUG, 0, &psBlob, &error);
+    if (error) error->Release();
+
+    if (!vsBlob || !psBlob) {
+        if (vsBlob) vsBlob->Release();
+        if (psBlob) psBlob->Release();
+        return;
+    }
+
+    ID3D11VertexShader* debugVS = nullptr;
+    ID3D11PixelShader* debugPS = nullptr;
+    ID3D11SamplerState* pointSampler = nullptr;
+
+    game->Device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &debugVS);
+    game->Device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &debugPS);
+
+    D3D11_SAMPLER_DESC samplerDesc = {};
+    samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+    samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+    samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    game->Device->CreateSamplerState(&samplerDesc, &pointSampler);
+
+    ID3D11ShaderResourceView* idSRV = gBuffer->GetSRV(GBuffer::OBJECT_ID);
+
+    context->VSSetShader(debugVS, nullptr, 0);
+    context->PSSetShader(debugPS, nullptr, 0);
+    context->PSSetShaderResources(0, 1, &idSRV);
+    context->PSSetSamplers(0, 1, &pointSampler);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    context->Draw(3, 0);
+
+    // Очищаем
+    ID3D11ShaderResourceView* nullSRV = nullptr;
+    context->PSSetShaderResources(0, 1, &nullSRV);
+
+    // Восстанавливаем
+    debugVS->Release();
+    debugPS->Release();
+    pointSampler->Release();
+    vsBlob->Release();
+    psBlob->Release();
+
+    context->OMSetRenderTargets(1, &oldRTV, oldDSV);
+    context->OMSetBlendState(oldBlendState, oldBlendFactor, oldSampleMask);
+
+    if (oldRTV) oldRTV->Release();
+    if (oldDSV) oldDSV->Release();
+    if (oldBlendState) oldBlendState->Release();
 }

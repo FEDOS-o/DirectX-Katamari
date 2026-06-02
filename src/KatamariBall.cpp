@@ -369,7 +369,6 @@ void KatamariBall::DrawBall() {
 }
 
 void KatamariBall::DrawGeometry(RenderingSystem* rs) {
-    std::cout << "KatamariBall::DrawGeometry called" << std::endl;
 
     if (!sphereInitialized) {
         std::cout << "  sphereInitialized = false" << std::endl;
@@ -380,12 +379,10 @@ void KatamariBall::DrawGeometry(RenderingSystem* rs) {
         return;
     }
 
-    std::cout << "  Drawing ball at position (" << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
 
     // Устанавливаем текстуру шара
     if (ballTexture) {
         game->Context->PSSetShaderResources(0, 1, &ballTexture);
-        std::cout << "  Texture set" << std::endl;
     }
     else {
         std::cout << "  No texture" << std::endl;
@@ -409,13 +406,12 @@ void KatamariBall::DrawGeometry(RenderingSystem* rs) {
         Matrix::CreateFromQuaternion(rotation) *
         Matrix::CreateTranslation(position);
 
-    std::cout << "  Calling DrawMeshToGBuffer" << std::endl;
     rs->DrawMeshToGBuffer(game->Context,
         sphereRenderer.GetVertexBuffer(),
         sphereRenderer.GetIndexBuffer(),
         sphereRenderer.GetIndexCount(),
-        world);
-    std::cout << "  DrawMeshToGBuffer completed" << std::endl;
+        world,
+        GetId());
 
     // Очищаем текстуру
     ID3D11ShaderResourceView* nullSRV = nullptr;

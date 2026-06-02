@@ -5,10 +5,11 @@
 class GBuffer {
 public:
     enum TextureType {
-        DIFFUSE = 0,  // RGBA8 - цвет (RGB) + unused (A)
-        NORMAL = 1,  // RGBA16F - нормали (XYZ) + unused (W)
+        DIFFUSE = 0,    // RGBA8 - цвет (RGB) + unused (A)
+        NORMAL = 1,     // RGBA16F - нормали (XYZ) + unused (W)
         WORLD_POS = 2,  // RGBA16F - позиция в мире (XYZ) + unused (W)
-        SPECULAR = 3,  // RGBA8 - specular цвет (RGB) + shininess (A)
+        SPECULAR = 3,   // RGBA8 - specular цвет (RGB) + shininess (A)
+        OBJECT_ID = 4,  // R32_UINT - ID объекта (32-бит целое)
         NUM_TEXTURES
     };
 
@@ -29,30 +30,23 @@ public:
     GBuffer();
     ~GBuffer();
 
-    // Запрещаем копирование
     GBuffer(const GBuffer&) = delete;
     GBuffer& operator=(const GBuffer&) = delete;
 
     HRESULT Initialize(ID3D11Device* device, int w, int h);
     void Release();
 
-    // Для GEOMETRY PASS (запись)
     void SetRenderTargets(ID3D11DeviceContext* context);
     void Clear(ID3D11DeviceContext* context);
     ID3D11DepthStencilView* GetDepthDSV() const { return depthDSV; }
 
-    // Для LIGHTING PASS (чтение)
     ID3D11ShaderResourceView* GetSRV(TextureType type) const;
-    void TestClearColors(ID3D11DeviceContext* context);
+    ID3D11RenderTargetView* GetRTV(TextureType type) const {
+        return (type >= 0 && type < NUM_TEXTURES) ? rtvs[type] : nullptr;
+    }
     ID3D11ShaderResourceView* GetDepthSRV() const { return depthSRV; }
 
-    // Геттеры
     int GetWidth() const { return width; }
     int GetHeight() const { return height; }
     bool IsInitialized() const { return initialized; }
-
-    // GBuffer.h - добавить в public секцию:
-    ID3D11RenderTargetView* GetRTV(int index) const {
-        return (index >= 0 && index < NUM_TEXTURES) ? rtvs[index] : nullptr;
-    }
 };

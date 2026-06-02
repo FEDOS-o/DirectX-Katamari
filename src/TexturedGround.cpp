@@ -188,12 +188,6 @@ void TexturedGround::Initialize() {
     textureView = Core::TextureLoader::LoadTexture2D(game, texturePath, false);
     textureLoaded = (textureView != nullptr);
 
-    if (textureLoaded) {
-        std::cout << "Ground texture loaded: " << texturePath << std::endl;
-    }
-    else {
-        std::cout << "ERROR: Ground texture NOT loaded: " << texturePath << std::endl;
-    }
 
     initialized = true;
 }
@@ -209,7 +203,6 @@ void TexturedGround::Draw() {
 void TexturedGround::DrawGeometry(RenderingSystem* rs) {
     if (!initialized || !rs || !vertexBuffer || !indexBuffer) return;
 
-    std::cout << "TexturedGround::DrawGeometry called" << std::endl;
 
     // НЕ устанавливаем свой vertex shader!
     // Используем тот, что уже установлен в BeginGeometryPass
@@ -218,7 +211,6 @@ void TexturedGround::DrawGeometry(RenderingSystem* rs) {
     if (textureLoaded && textureView) {
         game->Context->PSSetShaderResources(0, 1, &textureView);
         game->Context->PSSetSamplers(0, 1, &samplerState);
-        std::cout << "Ground texture set, textureView=" << textureView << std::endl;
     }
 
     // Обновляем константный буфер с мировыми матрицами
@@ -248,7 +240,6 @@ void TexturedGround::DrawGeometry(RenderingSystem* rs) {
     game->Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     game->Context->DrawIndexed(indexCount, 0, 0);
-    std::cout << "Ground drawn with " << indexCount << " indices" << std::endl;
 
     // Очищаем текстуру
     ID3D11ShaderResourceView* nullSRV = nullptr;

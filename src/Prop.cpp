@@ -201,7 +201,8 @@ void Prop::DrawGeometry(RenderingSystem* rs) {
             mesh->vertexBuffer,
             mesh->indexBuffer,
             mesh->indexCount,
-            world);
+            world,
+            GetId());
     }
 
     // Очищаем текстуру

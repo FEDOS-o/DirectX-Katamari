@@ -30,10 +30,11 @@ HRESULT GBuffer::Initialize(ID3D11Device* device, int w, int h) {
 
     // ‘орматы дл€ G-Buffer текстур
     DXGI_FORMAT formats[NUM_TEXTURES] = {
-        DXGI_FORMAT_R8G8B8A8_UNORM,      // DIFFUSE: 8 бит на канал, нормализованный
-        DXGI_FORMAT_R16G16B16A16_FLOAT,  // NORMAL: 16 бит float, высока€ точность
-        DXGI_FORMAT_R16G16B16A16_FLOAT,  // WORLD_POS: 16 бит float, высока€ точность
-        DXGI_FORMAT_R8G8B8A8_UNORM       // SPECULAR: specular RGB + shininess в A
+        DXGI_FORMAT_R8G8B8A8_UNORM,      // DIFFUSE: 8 бит на канал
+        DXGI_FORMAT_R16G16B16A16_FLOAT,  // NORMAL: 16 бит float
+        DXGI_FORMAT_R16G16B16A16_FLOAT,  // WORLD_POS: 16 бит float
+        DXGI_FORMAT_R8G8B8A8_UNORM,      // SPECULAR: specular RGB + shininess в A
+        DXGI_FORMAT_R32_UINT             // OBJECT_ID: 32-бит целое без знака
     };
 
     // —оздаем текстуры, RTV и SRV
@@ -92,7 +93,6 @@ HRESULT GBuffer::Initialize(ID3D11Device* device, int w, int h) {
         return hr;
     }
 
-    // Depth Stencil View
     D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc = {};
     dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
     dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
@@ -103,7 +103,6 @@ HRESULT GBuffer::Initialize(ID3D11Device* device, int w, int h) {
         return hr;
     }
 
-    // Depth Shader Resource View (дл€ отладки)
     D3D11_SHADER_RESOURCE_VIEW_DESC depthSrvDesc = {};
     depthSrvDesc.Format = DXGI_FORMAT_R32_FLOAT;
     depthSrvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
@@ -121,7 +120,6 @@ HRESULT GBuffer::Initialize(ID3D11Device* device, int w, int h) {
 }
 
 void GBuffer::Release() {
-    // ќсвобождаем текстуры, RTV и SRV
     for (int i = 0; i < NUM_TEXTURES; i++) {
         if (rtvs[i]) {
             rtvs[i]->Release();
@@ -163,15 +161,17 @@ void GBuffer::SetRenderTargets(ID3D11DeviceContext* context) {
 void GBuffer::Clear(ID3D11DeviceContext* context) {
     if (!initialized || !context) return;
 
-    const float clearColor0[] = { 0.0f, 0.0f, 0.0f, 0.0f }; // DIFFUSE
-    const float clearColor1[] = { 0.0f, 0.0f, 0.0f, 0.0f }; // NORMAL
-    const float clearColor2[] = { 0.0f, 0.0f, 0.0f, 0.0f }; // WORLD_POS
-    const float clearColor3[] = { 0.0f, 0.0f, 0.0f, 0.0f }; // SPECULAR
+    const float clearColor0[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    const float clearColor1[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    const float clearColor2[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    const float clearColor3[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    const UINT clearId = 0;  // 0 означает "нет объекта"
 
     context->ClearRenderTargetView(rtvs[DIFFUSE], clearColor0);
     context->ClearRenderTargetView(rtvs[NORMAL], clearColor1);
     context->ClearRenderTargetView(rtvs[WORLD_POS], clearColor2);
     context->ClearRenderTargetView(rtvs[SPECULAR], clearColor3);
+    context->ClearRenderTargetView(rtvs[OBJECT_ID], (const float*)&clearId);  // ќчищаем ID буфер нул€ми
     context->ClearDepthStencilView(depthDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
 }
 
@@ -180,22 +180,4 @@ ID3D11ShaderResourceView* GBuffer::GetSRV(TextureType type) const {
         return srvs[type];
     }
     return nullptr;
-}
-
-void GBuffer::TestClearColors(ID3D11DeviceContext* context) {
-    if (!initialized || !context) return;
-
-    // ќчищаем каждый RTV своим €рким цветом
-    float clearRed[] = { 1.0f, 0.0f, 0.0f, 1.0f };
-    float clearGreen[] = { 0.0f, 1.0f, 0.0f, 1.0f };
-    float clearBlue[] = { 0.0f, 0.0f, 1.0f, 1.0f };
-    float clearYellow[] = { 1.0f, 1.0f, 0.0f, 1.0f };
-
-    context->ClearRenderTargetView(rtvs[0], clearRed);
-    context->ClearRenderTargetView(rtvs[1], clearGreen);
-    context->ClearRenderTargetView(rtvs[2], clearBlue);
-    context->ClearRenderTargetView(rtvs[3], clearYellow);
-    context->ClearDepthStencilView(depthDSV, D3D11_CLEAR_DEPTH, 1.0f, 0);
-
-    std::cout << "GBuffer cleared with colors: RTV0=RED, RTV1=GREEN, RTV2=BLUE, RTV3=YELLOW" << std::endl;
 }

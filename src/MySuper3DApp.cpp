@@ -11,6 +11,7 @@
 #include <cmath>
 #include <vector>
 #include <string>
+#include <iostream>
 
 float GetModelScale(const std::string& modelPath) {
     if (modelPath.find("childrens_chair") != std::string::npos) return 0.05f;
@@ -35,6 +36,7 @@ int main() {
 
     Skybox* skybox = new Skybox(&game, "models/cubemap.png");
     game.skybox = skybox;
+    game.AddComponent(skybox);
 
     // ============================================
     // DIRECTIONAL LIGHT - основное освещение
@@ -50,7 +52,6 @@ int main() {
     // POINT LIGHTS - на расстоянии 15-25 единиц от центра
     // ============================================
 
-    // Красный Point Light - далеко справа
     PointLightComponent* redLight = new PointLightComponent(&game,
         Vector3(18, 4.0f, 0),
         Vector4(1.0f, 0.1f, 0.1f, 1.0f),
@@ -59,7 +60,6 @@ int main() {
     redLight->SetAttenuation(1.0f, 0.04f, 0.01f);
     game.AddLight(redLight);
 
-    // Зеленый Point Light - далеко слева
     PointLightComponent* greenLight = new PointLightComponent(&game,
         Vector3(-18, 4.0f, 0),
         Vector4(0.1f, 1.0f, 0.1f, 1.0f),
@@ -68,7 +68,6 @@ int main() {
     greenLight->SetAttenuation(1.0f, 0.04f, 0.01f);
     game.AddLight(greenLight);
 
-    // Синий Point Light - далеко спереди
     PointLightComponent* blueLight = new PointLightComponent(&game,
         Vector3(0, 4.0f, 18),
         Vector4(0.1f, 0.2f, 1.0f, 1.0f),
@@ -77,7 +76,6 @@ int main() {
     blueLight->SetAttenuation(1.0f, 0.04f, 0.01f);
     game.AddLight(blueLight);
 
-    // Желтый Point Light - далеко сзади
     PointLightComponent* yellowLight = new PointLightComponent(&game,
         Vector3(0, 4.0f, -18),
         Vector4(1.0f, 1.0f, 0.1f, 1.0f),
@@ -86,7 +84,6 @@ int main() {
     yellowLight->SetAttenuation(1.0f, 0.04f, 0.01f);
     game.AddLight(yellowLight);
 
-    // Пурпурный Point Light - диагонально справа-спереди
     PointLightComponent* magentaLight = new PointLightComponent(&game,
         Vector3(14, 3.0f, 14),
         Vector4(1.0f, 0.1f, 0.8f, 1.0f),
@@ -95,7 +92,6 @@ int main() {
     magentaLight->SetAttenuation(1.0f, 0.05f, 0.015f);
     game.AddLight(magentaLight);
 
-    // Бирюзовый Point Light - диагонально слева-спереди
     PointLightComponent* cyanLight = new PointLightComponent(&game,
         Vector3(-14, 3.0f, 14),
         Vector4(0.1f, 0.8f, 0.8f, 1.0f),
@@ -104,7 +100,6 @@ int main() {
     cyanLight->SetAttenuation(1.0f, 0.05f, 0.015f);
     game.AddLight(cyanLight);
 
-    // Оранжевый Point Light - диагонально справа-сзади
     PointLightComponent* orangeLight = new PointLightComponent(&game,
         Vector3(14, 3.0f, -14),
         Vector4(1.0f, 0.5f, 0.1f, 1.0f),
@@ -113,7 +108,6 @@ int main() {
     orangeLight->SetAttenuation(1.0f, 0.05f, 0.015f);
     game.AddLight(orangeLight);
 
-    // Розовый Point Light - диагонально слева-сзади
     PointLightComponent* pinkLight = new PointLightComponent(&game,
         Vector3(-14, 3.0f, -14),
         Vector4(1.0f, 0.4f, 0.7f, 1.0f),
@@ -123,10 +117,9 @@ int main() {
     game.AddLight(pinkLight);
 
     // ============================================
-    // SPOT LIGHTS - на среднем расстоянии 10-15 единиц
+    // SPOT LIGHTS
     // ============================================
 
-    // Красный Spot Light - светит слева направо
     SpotLightComponent* redSpot = new SpotLightComponent(&game,
         Vector3(-12, 5, 0),
         Vector3(1, -0.2f, 0),
@@ -137,7 +130,6 @@ int main() {
         2.5f);
     game.AddLight(redSpot);
 
-    // Синий Spot Light - светит справа налево
     SpotLightComponent* blueSpot = new SpotLightComponent(&game,
         Vector3(12, 5, 0),
         Vector3(-1, -0.2f, 0),
@@ -148,7 +140,6 @@ int main() {
         2.5f);
     game.AddLight(blueSpot);
 
-    // Зеленый Spot Light - светит сверху вниз
     SpotLightComponent* greenSpot = new SpotLightComponent(&game,
         Vector3(0, 10, 0),
         Vector3(0, -1, 0),
@@ -159,7 +150,6 @@ int main() {
         3.0f);
     game.AddLight(greenSpot);
 
-    // Желтый Spot Light - светит сзади-сверху вперед
     SpotLightComponent* yellowSpot = new SpotLightComponent(&game,
         Vector3(0, 7, -12),
         Vector3(0, -0.3f, 1),
@@ -170,7 +160,6 @@ int main() {
         2.0f);
     game.AddLight(yellowSpot);
 
-    // Пурпурный Spot Light - светит справа-сзади к центру
     SpotLightComponent* magentaSpot = new SpotLightComponent(&game,
         Vector3(10, 5, -10),
         Vector3(-0.7f, -0.2f, 0.7f),
@@ -181,7 +170,6 @@ int main() {
         2.5f);
     game.AddLight(magentaSpot);
 
-    // Бирюзовый Spot Light - светит слева-спереди к центру
     SpotLightComponent* cyanSpot = new SpotLightComponent(&game,
         Vector3(-10, 5, 10),
         Vector3(0.7f, -0.2f, -0.7f),
@@ -193,7 +181,7 @@ int main() {
     game.AddLight(cyanSpot);
 
     // ============================================
-    // АНИМИРОВАННЫЕ LIGHTS (летают по кругу)
+    // АНИМИРОВАННЫЕ LIGHTS
     // ============================================
 
     PointLightComponent* movingLight = new PointLightComponent(&game,
@@ -212,7 +200,6 @@ int main() {
     movingLight2->SetAttenuation(1.0f, 0.07f, 0.02f);
     game.AddLight(movingLight2);
 
-    // Мигающий белый Point Light
     PointLightComponent* flickerLight = new PointLightComponent(&game,
         Vector3(-8, 2, 6),
         Vector4(1.0f, 1.0f, 1.0f, 1.0f),
@@ -222,27 +209,27 @@ int main() {
     game.AddLight(flickerLight);
 
     TexturedGround* ground = new TexturedGround(&game, 100.0f, 100, "models/wood.jpg");
-    game.components.push_back(ground);
+    game.AddComponent(ground);
 
     OrbitalCamera* camera = new OrbitalCamera(&game, Vector3(0, 3, 0), 18.0f);
     game.orbitalCamera = camera;
     game.Camera = camera;
+    game.AddComponent(camera);
     camera->Initialize();
 
     KatamariBall* ball = new KatamariBall(&game, camera, Vector3(0, 0.5f, 0), 0.6f, "models/marble.jpg");
-    game.components.push_back(ball);
+    game.AddComponent(ball);
 
     ParticleEmitter* fountain1 = new ParticleEmitter(&game, Vector3(5.0f, 0.5f, 5.0f));
     fountain1->SetupFountain(Vector3(5.0f, 0.5f, 5.0f), Vector4(1.0f, 0.5f, 0.2f, 1.0f));
     fountain1->UseGBufferCollision(true);
-    game.components.push_back(fountain1);
+    game.AddComponent(fountain1);
 
-    // Еще один фонтан над пропом для теста
     ParticleEmitter* fountain2 = new ParticleEmitter(&game, Vector3(0.0f, 2.0f, 0.0f));
     fountain2->SetupFountain(Vector3(0.0f, 2.0f, 0.0f), Vector4(0.2f, 0.5f, 1.0f, 1.0f));
     fountain2->UseGBufferCollision(true);
     fountain2->SetRestitution(0.7f);
-    game.components.push_back(fountain2);
+    game.AddComponent(fountain2);
 
     std::vector<std::string> models = {
         "models/childrens_chair/childrens_chair.obj",
@@ -256,9 +243,11 @@ int main() {
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> modelDist(0, (int)models.size() - 1);
 
-    // Объекты раскиданы на расстоянии 8-15 единиц
     float distances[] = { 9.0f, 11.0f, 13.0f, 10.0f, 12.0f, 14.0f, 8.0f, 15.0f, 7.0f, 16.0f };
     float angles[] = { 0.2f, 1.8f, 3.1f, 4.5f, 5.0f, 2.5f, 4.0f, 1.0f, 3.8f, 5.5f };
+
+    // Сохраняем указатели на пропы для вывода информации
+    std::vector<Prop*> createdProps;
 
     for (int i = 0; i < 10; i++) {
         float x = cos(angles[i]) * distances[i];
@@ -267,8 +256,13 @@ int main() {
 
         int modelIndex = modelDist(gen);
         Prop* prop = new Prop(&game, models[modelIndex], pos, GetModelScale(models[modelIndex]));
-        game.components.push_back(prop);
+        game.AddComponent(prop);
         ball->props.push_back(prop);
+        createdProps.push_back(prop);
+
+        std::cout << "Created prop with model: " << models[modelIndex]
+            << " at position (" << x << ", 0, " << z << ")"
+                << " ID: " << prop->GetId() << std::endl;
     }
 
     HRESULT hr = game.Initialize();
@@ -277,6 +271,17 @@ int main() {
         return 1;
     }
 
+    std::cout << "\n=== G-Buffer Object ID System Active ===" << std::endl;
+    std::cout << "Click left mouse button to pick objects!" << std::endl;
+    std::cout << "Press 'C' to switch camera modes" << std::endl;
+    std::cout << "Press ESC to exit\n" << std::endl;
+
+    // Переменные для отслеживания состояния кнопки мыши
+    static bool leftMousePressed = false;
+    static uint32_t lastPickedId = 0;
+
+    // Запускаем игровой цикл (в реальном приложении нужно добавить обработку в Game::Update)
+    // В данном примере просто запускаем игру
     game.Run();
 
     fclose(f);

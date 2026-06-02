@@ -9,6 +9,7 @@
 #include <directxmath.h>
 #include <chrono>
 #include <vector>
+#include <algorithm>
 #include "DisplayWin32.h"
 #include "GameComponent.h"
 #include "InputDevice.h"
@@ -48,6 +49,8 @@ private:
 
     ID3D11Texture2D* ShadowMapTexture = nullptr;
     ID3D11DepthStencilView* ShadowMapDSV = nullptr;
+
+    uint32_t nextComponentId = 1;  // Auto-increment ID (0 зарезервирован как invalid)
 
 public:
     ID3D11ShaderResourceView* ShadowMapSRV = nullptr;
@@ -110,7 +113,6 @@ public:
     Matrix GetLightViewMatrix() const;
     Matrix GetLightProjectionMatrix() const;
 
-    // Game.h - добавить в public секцию:
     float GetDeltaTime() const { return deltaTime; }
 
     float deltaTime = 0.0f;
@@ -191,6 +193,13 @@ public:
         lightingSystem.FillLightBuffer(buffer);
     }
 
+    // Component management with auto-increment ID
+    void AddComponent(GameComponent* component);
+    void RemoveComponent(GameComponent* component);
+    void RemoveComponentById(uint32_t id);
+    GameComponent* GetComponentById(uint32_t id) const;
+    const std::vector<GameComponent*>& GetComponents() const { return components; }
+
 public:
     Game(LPCWSTR applicationName, HINSTANCE hInstance, LONG screenWidth, LONG screenHeight);
     ~Game();
@@ -213,4 +222,8 @@ public:
     void SwitchCamera();
 
     void UpdateAnimatedLights(float deltaTime);
+
+    uint32_t PickObjectAtScreenPos(int screenX, int screenY);
+    uint32_t PickObjectAtMousePosition();
+    void SaveObjectIdTextureToFile(const char* filename);
 };
